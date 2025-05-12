@@ -3,8 +3,8 @@ Orchestrator for Dynamic Agent Generation
 """
 import logging
 import google.generativeai as genai
-from google.adk.agents import Agent, Runner
-from google.adk.tools import Tool
+from google.adk.agents import Agent
+from google.adk.runners import Runner
 from tools import get_all_tools
 from dynamic_tools import DynamicToolGenerator
 from agent_registry import AgentRegistry
@@ -287,12 +287,17 @@ class Orchestrator:
         
         logger.info(f"Created agent: {agent.name}")
         
-        # Create a runner
-        runner = Runner(agent)
+        # Create a runner with required parameters
+        runner = Runner(
+            app_name="DynamicAgentOrchestrator",
+            agent=agent,
+            session_service=None  # We'll need to set up a proper session service or use a default
+        )
         
         # Run the agent with the user input
         try:
-            response = runner.run(user_input)
+            # Use 'query' as the keyword argument
+            response = runner.run(query=user_input)
             logger.info("Agent execution completed successfully")
             return response.message.content
         except Exception as e:

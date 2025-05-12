@@ -5,7 +5,8 @@ import logging
 import json
 import requests
 from datetime import datetime
-from google.adk.tools import Tool
+from custom_tool import Tool
+
 
 logger = logging.getLogger(__name__)
 

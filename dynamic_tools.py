@@ -7,7 +7,7 @@ import sys
 import os
 import re
 import google.generativeai as genai
-from google.adk.tools import Tool
+from custom_tool import Tool
 
 logger = logging.getLogger(__name__)
 
