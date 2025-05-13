@@ -1,0 +1,120 @@
+generate_agent_details_prompt = """
+Analyze the user request considering available tools and API keys. Decide action based on:
+(a) Pre-defined tools.
+(b) Dynamically created tools (already available, may include tools from previous sessions loaded from persistence).
+(c) A mix of pre-defined and dynamic tools.
+(d) Generating code for a NEW tool (if nothing existing is suitable). If the new tool needs an API key, it MUST try to use one listed as available in the environment by its environment variable name.
+
+Your goal is to:
+1. Identify names of PRE-DEFINED tools needed.
+2. Identify names of DYNAMICALLY CREATED tools needed (from persistence or current session).
+3. If NEITHER existing type is suitable, generate complete, Python code (with imports) for a NEW, **generic, and reusable** function.
+   - **CRITICAL: Aim for a tool that solves a class of problems, not just the specific instance in the user request.** For example, if the request is "Who is the CEO of Apple?", instead of generating `get_ceo_of_apple()`, strive to generate a more general `search_web(query: str)` or `get_entity_information(entity_name: str)` tool.
+   - The function should accept parameters to make it flexible (e.g., a search query, a city name, an entity to look up).
+   - The function name should reflect its general purpose (e.g., `search_web_with_serper`, `get_weather_for_city`).
+   - This function MUST attempt to retrieve any required API key from the environment using `os.environ.get('KEY_ENV_VAR_NAME')`.
+   - Refer to the Usage Snippet for the relevant API key for guidance on making the API call.
+   - Refer to the Output Format Example for the relevant API key for guidance on parsing the API response and extracting useful, structured information. The tool should process the raw API output into a more refined, directly usable result for the assistant.
+   - Handle potential errors gracefully (e.g., API key missing, network errors, invalid response format, no relevant data found) and return informative error messages or empty results where appropriate.
+   - Provide the function name(s) defined by the generated code.
+4. Generate a concise system prompt for an AI assistant to fulfill the request, instructing it to use the identified tools (pre-defined, existing dynamic, or newly generated).
+5. If generating NEW tool code (goal #3), also provide a JSON object with example dummy arguments that can be used to test-call the main function of the generated tool. Use plausible, simple values. For example, if the tool is `get_weather(city: str)`, dummy arguments could be `{{"city": "TestCity"}}`.
+
+User Request: "{user_request}"
+
+Pre-defined Tools (Prefer these if suitable):
+{predefined_tool_descriptions}
+
+Dynamically Created Tools (Available by name, may include tools from previous sessions loaded from persistence):
+{dynamic_tool_listing}
+
+API Keys Available in Environment (for generated code via os.environ.get()):
+{api_key_listing_for_prompt}
+
+Please respond ONLY with a valid JSON object containing:
+- "generated_prompt": (string) The system prompt for the assistant.
+- "required_predefined_tools": (list of strings) Names from Pre-defined Tools.
+- "required_dynamic_tools": (list of strings) Names from Dynamically Created Tools.
+- "generated_tool_code": (string or null) Code for a NEW tool, or null if not needed.
+- "required_new_tool_names": (list of strings) Name(s) from generated_tool_code.
+- "example_dummy_arguments": (object or null) A dictionary of dummy arguments for the primary function in `generated_tool_code`, or null if no new code is generated.
+
+Example (New Tool Needing API Key):
+Request: "What is the weather in London?" (Assume WEATHER_API_KEY is listed as available with relevant details + usage + output format)
+Output:
+{{
+  "generated_prompt": "You are a weather assistant. Use the 'get_weather' tool for London.",
+  "required_predefined_tools": [],
+  "required_dynamic_tools": [],
+  "generated_tool_code": "# Example generated code based on usage snippet and output format\\nimport requests\\nimport os\\n\\ndef get_weather(city: str) -> str:\\n    print(f'---> Dynamically generated tool get_weather({{city}}) called')\\n    api_key = os.environ.get('WEATHER_API_KEY')\\n    if not api_key: return 'Error: WEATHER_API_KEY not found in environment.'\\n    try:\\n        url = f'https://api.openweathermap.org/data/2.5/weather?q={{city}}&appid={{api_key}}&units=metric'\\n        response = requests.get(url)\\n        response.raise_for_status() # Check for HTTP errors\\n        data = response.json()\\n        # Parse response based on expected output format example\\n        description = data.get('weather', [{{}}])[0].get('description', 'N/A')\\n        temp = data.get('main', {{}}).get('temp', 'N/A')\\n        return f'Weather in {{city}}: {{description}}, Temp: {{temp}}C'\\n    except requests.exceptions.RequestException as req_err:\\n        return f'Error calling weather API: {{req_err}}'\\n    except json.JSONDecodeError:\\n        return f'Error: Could not parse weather API response for {{city}}.'\\n    except Exception as e:\\n        return f'Error in generated weather tool: {{e}}'",
+  "required_new_tool_names": ["get_weather"],
+  "example_dummy_arguments": {{"city": "TestCity"}}
+}}
+Example (Pre-defined Tool):
+Request: "What is 10 minus 3?"
+Output:
+{{
+  "generated_prompt": "You are a calculator. Use the 'subtract' tool to calculate 10 minus 3.",
+  "required_predefined_tools": ["subtract"],
+  "required_dynamic_tools": [],
+  "generated_tool_code": null,
+  "required_new_tool_names": [],
+  "example_dummy_arguments": null
+}}
+
+Example (Using Previously Generated Dynamic Tool):
+Request: "Now what is the weather in Paris?" (Assume 'get_weather' was generated in the previous turn)
+Output:
+{{
+  "generated_prompt": "You are a weather assistant. Use the previously generated 'get_weather' tool for Paris.",
+  "required_predefined_tools": [],
+  "required_dynamic_tools": ["get_weather"],
+  "generated_tool_code": null,
+  "required_new_tool_names": [],
+  "example_dummy_arguments": null
+}}
+
+JSON Response:
+"""
+
+refactor_dynamic_tools_prompt = """
+You are an expert Python code refactoring assistant. Your task is to analyze a list of dynamically generated Python tool functions and identify opportunities for generalization.
+
+If you find two or more tools that perform very similar tasks but are hardcoded for specific parameters (e.g., different weather tools for specific cities, different search tools for specific keywords), you should:
+1.  Design a new, single, generalized Python function that can replace these specific tools. This new function MUST:
+    a.  Accept parameters to cover the variations of the old tools (e.g., a `city` parameter, a `search_query` parameter).
+    b.  Have a generic name that reflects its broader purpose (e.g., `get_weather`, `search_internet`). The name should be descriptive and clearly indicate the function's action and the type of data it handles (e.g., `get_weather_for_city`, `search_web_for_query`, `get_stock_price_for_symbol`). Avoid overly generic names like `get_data` or `call_api`.
+    c.  Retrieve any necessary API keys from environment variables using `os.environ.get('KEY_NAME')`.
+    d.  Include all necessary imports.
+    e.  Handle potential errors gracefully.
+    f.  **Crucially, the tools being merged should generally be using the same underlying external API or service.** The generalization should focus on parameterizing the inputs to that common API, not on trying to combine fundamentally different API integrations.
+2.  Specify the names of the old, specific tool functions that this new generalized function replaces.
+
+If no clear opportunities for generalization are found among the provided tools, or if there are fewer than two tools, respond with null values for the new tool and removal list.
+
+Provided Tool Codes:
+----------------------
+{tool_codes_for_prompt}
+----------------------
+
+Please respond ONLY with a valid JSON object containing:
+- "new_generalized_tool_code": (string or null) Complete Python code for the NEW generalized tool, or null if no generalization is proposed.
+- "new_generalized_tool_names": (list of strings or null) Name(s) of the function(s) defined in `new_generalized_tool_code`, or null.
+- "tools_to_remove_after_generalization": (list of strings or null) Names of the OLD specific tools that are replaced by the new generalized tool, or null.
+
+Example Output (Generalization Found):
+{{
+  "new_generalized_tool_code": "import os\nimport requests\n\ndef get_weather_for_city(city_name: str) -> str:\n    # ... implementation ...\n    api_key = os.environ.get('OPEN_WEATHER_API_KEY')\n    # ... rest of the code ...",
+  "new_generalized_tool_names": ["get_weather_for_city"],
+  "tools_to_remove_after_generalization": ["get_london_weather", "get_paris_weather"]
+}}
+
+Example Output (No Generalization Found):
+{{
+  "new_generalized_tool_code": null,
+  "new_generalized_tool_names": null,
+  "tools_to_remove_after_generalization": null
+}}
+
+JSON Response:
+"""

@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent UI</title>
+    <!-- Include Marked.js and DOMPurify from CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.11/dist/purify.min.js"></script> 
+    <!-- Note: Use specific versions in production or manage dependencies locally -->
+
+    <style>
+        body { font-family: sans-serif; margin: 0; background-color: #f4f4f4; display: flex; height: 100vh; }
+        #main-container { display: flex; width: 100%; height: 100%; }
+        #side-panel { width: 250px; height: 100%; background-color: #e9e9eb; padding: 15px; box-sizing: border-box; overflow-y: auto; border-right: 1px solid #ccc; }
+        #side-panel h2 { margin-top: 0; font-size: 1.2em; color: #333; border-bottom: 1px solid #ddd; padding-bottom: 10px; }
+        #side-panel h3 { font-size: 1em; color: #444; margin-top: 15px; margin-bottom: 5px; }
+        #side-panel ul { list-style-type: none; padding-left: 0; margin-bottom: 15px; }
+        #side-panel li { font-size: 0.9em; color: #555; padding: 5px 0; border-bottom: 1px solid #f0f0f0; }
+        #side-panel li:last-child { border-bottom: none; }
+        #side-panel li strong { color: #333; }
+        #side-panel li span { display: block; font-size: 0.85em; color: #777; margin-left: 10px; }
+        #chat-container { flex-grow: 1; max-width: none; background-color: #fff; box-shadow: 0 0 10px rgba(0,0,0,0.1); border-radius: 8px; display: flex; flex-direction: column; height: 80vh; }
+        #chatbox { flex-grow: 1; padding: 20px; overflow-y: auto; border-bottom: 1px solid #ddd; }
+        .message { margin-bottom: 15px; padding: 10px; border-radius: 5px; line-height: 1.4; }
+        .user-message { background-color: #007bff; color: white; align-self: flex-end; margin-left: auto; }
+        .agent-message { background-color: #e9e9eb; color: #333; align-self: flex-start; margin-right: auto; }
+        #input-area { display: flex; padding: 10px; border-top: 1px solid #ddd; }
+        #userInput { flex-grow: 1; padding: 10px; border: 1px solid #ccc; border-radius: 4px; margin-right: 10px; }
+        #sendButton { padding: 10px 15px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        #sendButton:hover { background-color: #0056b3; }
+        .log-message { background-color: #f0f0f0; color: #555; font-size: 0.9em; font-style: italic; align-self: stretch; text-align: left; margin-left: 0; margin-right: 0; padding: 5px 10px; border-radius: 3px; }
+        
+        /* Styling for the collapsible log container */
+        details.log-container { 
+            background-color: #f8f8f8; 
+            border: 1px solid #eee;
+            border-radius: 4px; 
+            margin-bottom: 10px; 
+            align-self: stretch;
+        }
+        details.log-container summary {
+            padding: 5px 10px;
+            cursor: pointer;
+            font-weight: bold;
+            color: #666;
+            font-size: 0.9em;
+            outline: none; /* Remove default focus outline */
+        }
+        details.log-container div.log-content {
+            padding: 0px 10px 10px 20px; /* Indent log messages */
+            max-height: 150px; /* Limit height */
+            overflow-y: auto; /* Add scroll if too many logs */
+        }
+        details.log-container p.log-entry {
+            margin: 3px 0;
+            color: #555;
+            font-size: 0.85em;
+            font-style: italic;
+            line-height: 1.3;
+        }
+
+        /* Loading Spinner */
+        .loader {
+            border: 4px solid #f3f3f3; /* Light grey */
+            border-top: 4px solid #3498db; /* Blue */
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            display: inline-block; /* Keep it inline */
+            margin-left: 10px; /* Space from potential text */
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div id="main-container">
+        <div id="side-panel">
+            <h2>System Information</h2>
+            
+            <h3>Predefined Tools</h3>
+            <ul id="predefined-tools-list">
+                <!-- Predefined tools will be listed here -->
+            </ul>
+            
+            <h3>Dynamic Tools</h3>
+            <ul id="dynamic-tools-list">
+                <!-- Dynamic tools will be listed here -->
+            </ul>
+            
+            <h3>Available API Keys</h3>
+            <ul id="api-keys-list">
+                <!-- API keys will be listed here -->
+            </ul>
+        </div>
+
+        <div id="chat-container">
+            <div id="chatbox">
+                <div class="message agent-message"><p>Hello! How can I help you today?</p></div>
+            </div>
+            <div id="input-area">
+                <input type="text" id="userInput" placeholder="Send a message..." onkeypress="handleKeyPress(event)">
+                <button id="sendButton" onclick="sendMessage()">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const userInput = document.getElementById('userInput');
+        const chatbox = document.getElementById('chatbox');
+
+        // Call to update side panel on initial page load
+        document.addEventListener('DOMContentLoaded', updateSidePanelInfo);
+
+        async function sendMessage() {
+            const messageText = userInput.value.trim();
+            if (!messageText) return;
+
+            appendMessage(messageText, 'user-message');
+            userInput.value = '';
+            userInput.disabled = true;
+            document.getElementById('sendButton').disabled = true;
+
+            // 1. Append loading indicator
+            const loadingIndicatorBubble = appendLoadingIndicator();
+
+            // 2. Prepare container for logs (but don't add to chatbox yet)
+            let logContainer = null; 
+            let logContentDiv = null;
+            let logsAdded = false;
+
+            // Construct URL for SSE endpoint
+            const encodedMessage = encodeURIComponent(messageText);
+            const eventSourceUrl = `/send_message?message=${encodedMessage}`;
+            
+            const eventSource = new EventSource(eventSourceUrl);
+
+            eventSource.onmessage = function(event) {
+                // Default event type carries log messages
+                const logData = event.data.replace(/\\n/g, '\n');
+
+                // Create/add log container only on first log message
+                if (!logsAdded) {
+                    logContainer = document.createElement('details');
+                    logContainer.classList.add('log-container');
+                    const summary = document.createElement('summary');
+                    summary.textContent = 'Processing Logs...';
+                    logContainer.appendChild(summary);
+                    
+                    logContentDiv = document.createElement('div');
+                    logContentDiv.classList.add('log-content');
+                    logContainer.appendChild(logContentDiv);
+
+                    // Insert log container *before* the loading bubble
+                    chatbox.insertBefore(logContainer, loadingIndicatorBubble);
+                    logsAdded = true;
+                }
+                
+                // Append the log message inside the container's content div
+                const logEntry = document.createElement('p');
+                logEntry.classList.add('log-entry');
+                // logEntry.textContent = logData; // Old way: sets plain text
+
+                // Apply Markdown rendering to logData as well
+                const unsafeLogHtml = marked.parse(logData, { 
+                    gfm: true,
+                    breaks: true,
+                    mangle: false,
+                    headerIds: false
+                });
+                const cleanLogHtml = DOMPurify.sanitize(unsafeLogHtml);
+                logEntry.innerHTML = cleanLogHtml; // New way: sets rendered HTML
+
+                logContentDiv.appendChild(logEntry);
+                
+                chatbox.scrollTop = chatbox.scrollHeight; // Scroll down
+            };
+
+            eventSource.addEventListener('final_reply', function(event) {
+                removeLoadingIndicator(loadingIndicatorBubble); // Remove loader
+                const finalReplyData = event.data.replace(/\\n/g, '\n');
+                appendMessage(finalReplyData, 'agent-message');
+                enableUI();
+                eventSource.close(); // Close the connection after final reply
+                updateSidePanelInfo(); // Update panel after interaction
+            });
+
+            eventSource.addEventListener('stream_error', function(event) {
+                removeLoadingIndicator(loadingIndicatorBubble);
+                const errorData = event.data.replace(/\\n/g, '\n');
+                appendMessage(`Stream Error: ${errorData}`, 'agent-message'); // Display as an agent message
+                enableUI();
+                eventSource.close(); // Close on error too
+                updateSidePanelInfo(); // Update panel after interaction (e.g. if a tool failed)
+            });
+            
+            eventSource.addEventListener('stream_end', function(event) {
+                console.log("Stream ended by server.");
+                removeLoadingIndicator(loadingIndicatorBubble); // Ensure loader is gone
+                enableUI(); 
+                eventSource.close(); 
+                updateSidePanelInfo(); // Update panel after stream ends, especially for dynamic tools
+            });
+
+            eventSource.onerror = function(error) {
+                console.error('EventSource failed:', error);
+                removeLoadingIndicator(loadingIndicatorBubble); // Ensure loader is gone
+                appendMessage('Error connecting to the agent for streaming. Please try again.', 'agent-message');
+                enableUI();
+                eventSource.close(); // Important to close on error
+            };
+        }
+
+        function appendMessage(text, type) {
+            const messageDiv = document.createElement('div');
+            messageDiv.classList.add('message', type);
+            
+            const p = document.createElement('p');
+            // Sanitize text before inserting to prevent XSS if displaying complex HTML from agent
+            // For now, assuming agent sends plain text or simple pre-formatted HTML.
+            // A more robust solution would use a sanitizer library or ensure agent only sends safe markdown/text.
+            // p.textContent = text; // Using textContent for safety for now
+
+            // Basic Markdown to HTML conversion (limited for demonstration)
+            // let htmlContent = text;
+            // 
+            // // Newlines to <br> (often p tags handle this, but explicit for other contexts)
+            // // htmlContent = htmlContent.replace(/\n/g, '<br>'); // Already handled by p.textContent in separate lines generally
+            // 
+            // // Bold: **text** or __text__
+            // htmlContent = htmlContent.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            // htmlContent = htmlContent.replace(/__(.*?)__/g, '<strong>$1</strong>');
+            // 
+            // // Italic: *text* or _text_
+            // // Need to be careful not to match the bold patterns again if they use single asterisks/underscores internally
+            // // This regex attempts to match *only if not preceded or followed by another* (simplistic lookaround)
+            // htmlContent = htmlContent.replace(/(?<!\*)\*(?!\*)(.*?)(?<!\*)\*(?!\*)/g, '<em>$1</em>');
+            // htmlContent = htmlContent.replace(/(?<!_)_{1}(?!_)(.*?)(?<!_)_{1}(?!_)/g, '<em>$1</em>');
+            // 
+            // // Code blocks (simple inline `code`)
+            // htmlContent = htmlContent.replace(/`(.*?)`/g, '<code>$1</code>');
+            // 
+            // // Links: [text](url)
+            // htmlContent = htmlContent.replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank">$1</a>');
+
+            // Use Marked.js to parse Markdown and DOMPurify to sanitize the result
+            const unsafeHtml = marked.parse(text, { 
+                gfm: true,      // Enable GitHub Flavored Markdown
+                breaks: true,   // Convert single newlines to <br>
+                mangle: false,  // Disable deprecated option
+                headerIds: false // Disable automatic header IDs
+            }); 
+            const cleanHtml = DOMPurify.sanitize(unsafeHtml);
+
+            // IMPORTANT: For security, if using a proper Markdown library that outputs HTML,
+            // you MUST sanitize htmlContent here before assigning to innerHTML.
+            // e.g., using DOMPurify: p.innerHTML = DOMPurify.sanitize(generatedHtmlFromMarkdownLib);
+            // Since this is manual and very limited, we are directly assigning, but this is risky for complex inputs.
+            p.innerHTML = cleanHtml; // Assign the sanitized HTML
+
+            messageDiv.appendChild(p);
+            
+            chatbox.appendChild(messageDiv);
+            chatbox.scrollTop = chatbox.scrollHeight; // Scroll to bottom
+        }
+
+        // --- Helper Functions --- 
+
+        function appendLoadingIndicator() {
+            const loadingDiv = document.createElement('div');
+            loadingDiv.classList.add('message', 'agent-message'); // Style like an agent message
+            loadingDiv.setAttribute('id', 'loading-indicator'); // Assign ID for easy removal
+            
+            const p = document.createElement('p');
+            p.textContent = 'Processing...'; // Initial text
+            const loaderSpan = document.createElement('span');
+            loaderSpan.classList.add('loader');
+            p.appendChild(loaderSpan);
+            
+            loadingDiv.appendChild(p);
+            chatbox.appendChild(loadingDiv);
+            chatbox.scrollTop = chatbox.scrollHeight;
+            return loadingDiv; // Return the element reference
+        }
+
+        function removeLoadingIndicator(loadingDiv) {
+            if (loadingDiv) {
+                loadingDiv.remove();
+            }
+        }
+
+        function enableUI() {
+            if (userInput.disabled) { // Check if already enabled
+                userInput.disabled = false;
+                document.getElementById('sendButton').disabled = false;
+                userInput.focus();
+            }
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+
+        // --- Helper Functions for Side Panel ---
+        async function updateSidePanelInfo() {
+            try {
+                const response = await fetch('/get_system_info');
+                if (!response.ok) {
+                    console.error("Failed to fetch system info:", response.status);
+                    // Optionally, display an error in the side panel itself
+                    return;
+                }
+                const info = await response.json();
+
+                populateList('predefined-tools-list', info.predefined_tools, item => `<strong>${item.name}</strong><span>${item.description}</span>`);
+                populateList('dynamic-tools-list', info.dynamic_tools, item => `<strong>${item.name}</strong><span>${item.description}</span>`);
+                populateList('api-keys-list', info.api_keys, item => `<strong>${item.name}</strong><span>Service: ${item.service} - ${item.description}</span>`);
+
+            } catch (error) {
+                console.error("Error updating side panel info:", error);
+            }
+        }
+
+        function populateList(listId, items, formatter) {
+            const listElement = document.getElementById(listId);
+            if (!listElement) return;
+
+            listElement.innerHTML = ''; // Clear existing items
+
+            if (items && items.length > 0) {
+                items.forEach(item => {
+                    const li = document.createElement('li');
+                    li.innerHTML = formatter(item); // Use formatter to create content
+                    listElement.appendChild(li);
+                });
+            } else {
+                const li = document.createElement('li');
+                li.textContent = 'None available.';
+                listElement.appendChild(li);
+            }
+        }
+    </script>
+</body>
+</html> 

@@ -1,0 +1,1128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent UI - Enhanced Chat</title>
+    <!-- Google Font: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Marked.js and DOMPurify from CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.11/dist/purify.min.js"></script>
+
+    <!-- Highlight.js for Syntax Highlighting - Ensure a generic light theme is linked if not already -->
+    <!-- We'll use a common light theme like 'default' or 'github', then override 'pre' background -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/stackoverflow-light.min.css"> 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+
+    <style>
+        :root {
+            --font-family-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            
+            /* --- Pastel, Warm, Paper Theme --- */
+            --paper-bg: #fdfbf6; /* Warm, creamy off-white for paper feel */
+            --surface-bg: #fffcf9; /* Very slightly lighter for main surfaces */
+            --side-panel-highlight: #f9f5ef; /* A subtle differentiation for side panel */
+
+            --primary-accent: #e57373; /* Soft, warm terracotta/coral pastel */
+            --primary-accent-darker: #d35f5f; /* Darker shade for depth/hovers */
+            --secondary-accent: #ffcc80; /* Muted peach/apricot for secondary highlights if needed */
+
+            --user-message-bg: linear-gradient(135deg, var(--primary-accent), var(--primary-accent-darker));
+            /* Agent message on a very light, warm, almost paper-like bg */
+            --agent-message-bg: #f9f5ef; 
+            
+            --text-primary: #5d4037; /* Warm, dark brown for primary text */
+            --text-secondary: #795548; /* Lighter warm brown for secondary text */
+            --text-tertiary: #a1887f; /* Muted warm brown for timestamps, subtle info */
+            --text-on-primary-bg: #ffffff; /* White text on the terracotta accent */
+            
+            --border-color: #e0d8ce; /* Soft, warm, light brown border */
+            --border-color-light: #f0e9e1; /* Even lighter for very subtle lines */
+            
+            --border-radius: 8px; /* Slightly softer, rounder feel */
+            --border-radius-sm: 5px;
+            
+            /* Shadows to be very soft and warm, or minimal for paper feel */
+            --box-shadow-soft: 0 3px 8px rgba(93, 64, 55, 0.07); 
+            --box-shadow-strong: 0 6px 15px rgba(93, 64, 55, 0.1);
+            --box-shadow-inset: inset 0 1px 2px rgba(93, 64, 55, 0.04);
+
+            --icon-color: var(--text-secondary);
+            --avatar-size: 36px; 
+            
+            /* --- Apply to actual background variables used before --- */
+            --background-color: var(--paper-bg);
+            --surface-color: var(--surface-bg); 
+            --side-panel-bg: var(--side-panel-highlight);
+        }
+
+        * { 
+            box-sizing: border-box; 
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        body {
+            font-family: var(--font-family-sans);
+            margin: 0;
+            background-color: var(--background-color);
+            color: var(--text-primary);
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+            font-size: 15px; /* Slightly smaller base for more precise control */
+            line-height: 1.6;
+        }
+
+        #main-container { 
+            display: flex; 
+            width: 100%; 
+            height: 100%; 
+        }
+
+        /* --- Side Panel Styling --- */
+        #side-panel {
+            width: 320px; /* Slightly wider */
+            min-width: 300px;
+            height: 100%;
+            background-color: var(--side-panel-bg);
+            padding: 28px; /* More padding */
+            overflow-y: auto;
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Model Selector in Side Panel */
+        .model-selector-container {
+            margin-bottom: 24px;
+            padding-bottom: 24px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .model-selector-container label {
+            display: block;
+            font-size: 0.875em; /* 14px */
+            font-weight: 600;
+            color: var(--text-primary); /* More prominent label */
+            margin-bottom: 10px;
+        }
+        .model-selector-container select {
+            width: 100%;
+            padding: 12px 16px;
+            border-radius: var(--border-radius-sm);
+            border: 1px solid var(--border-color);
+            background-color: var(--surface-color);
+            font-family: var(--font-family-sans);
+            font-size: 0.875em; /* 14px */
+            box-shadow: none; /* Flatter look */
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        .model-selector-container select:focus {
+            outline: none;
+            border-color: var(--primary-accent);
+            box-shadow: 0 0 0 3px rgba(0, 119, 204, 0.15);
+        }
+        
+        #side-panel h2 { /* System Dashboard Title */
+            font-size: 1.25em; /* 20px */
+            font-weight: 700;
+            color: var(--text-primary);
+            padding-bottom: 12px;
+            margin: 0 0 24px 0;
+            border-bottom: 2px solid var(--primary-accent);
+            display: flex;
+            align-items: center;
+        }
+        #side-panel h2::before { content: '⚙️'; margin-right: 10px; font-size: 1.1em; } /* Updated icon */
+
+        #side-panel h3 { /* Section Titles like Predefined Tools */
+            font-size: 0.8em; /* 13px - smaller, uppercase for section heads */
+            font-weight: 700;
+            color: var(--text-secondary); /* More subtle section head */
+            margin: 24px 0 12px 0; /* More space above */
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            display: flex;
+            align-items: center;
+        }
+        #side-panel h3#predefined-tools-heading::before { content: '🧰'; margin-right: 8px; opacity: 0.7;}
+        #side-panel h3#dynamic-tools-heading::before { content: '✨'; margin-right: 8px; opacity: 0.7;}
+        #side-panel h3#api-keys-heading::before { content: '🔑'; margin-right: 8px; opacity: 0.7;}
+
+        #side-panel ul { 
+            list-style-type: none; 
+            padding-left: 0; 
+            margin-bottom: 20px;
+        }
+        #side-panel li {
+            font-size: 0.875em; /* 14px */
+            color: var(--text-secondary);
+            padding: 12px 16px; /* More padding */
+            border-radius: var(--border-radius-sm);
+            margin-bottom: 8px;
+            background-color: var(--surface-color); /* White background for items */
+            border: 1px solid var(--border-color-light);
+            box-shadow: var(--box-shadow-soft); /* Softer shadow for list items */
+            transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+        }
+        #side-panel li[data-tool-name]:hover { /* Specific to clickable tools */
+            transform: translateY(-2px) scale(1.01);
+            box-shadow: var(--box-shadow-strong);
+            border-color: var(--primary-accent);
+        }
+        #side-panel li strong { color: var(--text-primary); font-weight: 600; display: block; margin-bottom: 4px; }
+        #side-panel li span { display: block; font-size: 0.9em; color: var(--text-tertiary); line-height: 1.4;}
+        #side-panel li em { color: var(--text-tertiary); }
+
+
+        /* --- Chat Container Styling --- */
+        #chat-container {
+            flex-grow: 1; 
+            background-color: var(--surface-color); /* Main chat area white */
+            display: flex; flex-direction: column;
+            height: 100vh; max-height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Chat Title Bar */
+        #chat-title-bar {
+            padding: 16px 28px; /* Match side panel horizontal padding */
+            background-color: var(--surface-color); /* White, matching chatbox area */
+            border-bottom: 1px solid var(--border-color);
+            flex-shrink: 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02); /* Subtle shadow for depth */
+        }
+        #chat-title-bar h2 {
+            margin: 0;
+            font-size: 1.125em; /* 18px */
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        #chatbox {
+            flex-grow: 1; padding: 28px; /* More padding */
+            overflow-y: auto; display: flex; flex-direction: column; gap: 24px; /* Increased gap */
+        }
+
+        /* Message Group & Avatar Styling */
+        .message-group {
+            display: flex;
+            max-width: 75%; /* Slightly less wide for more "chat" feel */
+            align-items: flex-end; 
+        }
+        .message-group.user-message-group {
+            align-self: flex-end;
+            flex-direction: row-reverse;
+        }
+        .message-group.agent-message-group {
+            align-self: flex-start;
+            flex-direction: row;
+        }
+        .avatar {
+            width: var(--avatar-size); height: var(--avatar-size);
+            border-radius: 50%;
+            background-color: var(--border-color-light); 
+            display: flex; align-items: center; justify-content: center;
+            margin: 0 12px;
+            flex-shrink: 0;
+            background-size: 60%; /* Adjusts the size of the SVG inside the circle */
+            background-repeat: no-repeat;
+            background-position: center;
+        }
+
+        .avatar.user-avatar {
+            /* Simple SVG User Icon (Outline) */
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23795548' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2'%3E%3C/path%3E%3Ccircle cx='12' cy='7' r='4'%3E%3C/circle%3E%3C/svg%3E");
+            background-color: var(--secondary-accent); /* Light peach bg for user avatar */
+        }
+
+        .avatar.agent-avatar {
+            /* Simple SVG Bot Icon (Outline) */
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23FFFFFF' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 8V4m0 0h-2M12 4h2M12 8h4M12 8H8m4 8v-4m0 0h2M12 12H8m8-4h2a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2'%3E%3C/path%3E%3Ccircle cx='12' cy='12' r='1'%3E%3C/circle%3E%3C/svg%3E");
+            background-color: var(--primary-accent); /* Use the primary accent for bot avatar bg */
+        }
+
+        /* Message Bubble Refinements */
+        .message-bubble {
+            padding: 14px 20px; /* Generous padding */
+            border-radius: var(--border-radius); /* Consistent radius */
+            line-height: 1.6;
+            box-shadow: var(--box-shadow-soft);
+            word-wrap: break-word;
+            position: relative;
+            flex-grow: 1; 
+            max-width: 100%;
+        }
+        .message-group.user-message-group .message-bubble {
+            background: var(--user-message-bg);
+            color: var(--text-on-primary-bg);
+            border-bottom-right-radius: 4px; /* "Tail" effect */
+        }
+        .message-group.agent-message-group .message-bubble {
+            background-color: var(--agent-message-bg);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color-light); /* Subtle border for agent bubble */
+            border-bottom-left-radius: 4px; /* "Tail" effect */
+        }
+        #chatbox > .message-group:first-child.agent-message-group .message-bubble { /* Initial agent message */
+             background: var(--user-message-bg); /* Keep initial message distinct */
+             color: var(--text-on-primary-bg);
+             border: none;
+        }
+        .message-content p:first-child { margin-top: 0; }
+        .message-content p:last-child { margin-bottom: 0; }
+        .message-content ul, .message-content ol { padding-left: 1.2em; margin-bottom: 0;}
+
+        /* Timestamp Styling */
+        .timestamp {
+            font-size: 0.75em; /* 12px */
+            color: var(--text-tertiary);
+            white-space: nowrap;
+            margin-top: 8px; /* More space */
+            flex-shrink: 0;
+        }
+         .message-group.user-message-group .timestamp { text-align: right; margin-right: 0; }
+         .message-group.agent-message-group .timestamp { text-align: left; margin-left: 0; }
+
+        /* Log Details Styling */
+        .log-toggle-button {
+            background: none; border: none;
+            color: var(--primary-accent); cursor: pointer;
+            font-size: 0.8em; /* 13px */
+            padding: 6px 10px; margin-top: 12px;
+            display: inline-flex; align-items: center;
+            border-radius: var(--border-radius-sm);
+            transition: background-color 0.2s ease;
+        }
+        .log-toggle-button:hover { background-color: rgba(0, 119, 204, 0.08); }
+        .log-toggle-button svg { width: 1em; height: 1em; margin-right: 6px; }
+        .log-details {
+            display: none;
+            margin-top: 10px; padding: 12px;
+            background-color: rgba(0,0,0,0.02); /* Very subtle */
+            border-radius: var(--border-radius-sm);
+            border: 1px solid var(--border-color-light);
+            max-height: 180px; overflow-y: auto; font-size: 0.8125em; /* 13px */
+        }
+        .log-details.active { display: block; }
+        .log-entry { margin: 6px 0; color: var(--text-secondary); word-break: break-all; }
+        .log-entry pre { font-size: 0.9em; }
+
+        /* Used Tools Info Styling */
+        .used-tools-info {
+            margin-top: 16px; /* More space before tools section */
+            padding: 12px;
+            background-color: rgba(0,0,0,0.02); /* Match log details background */
+            border-radius: var(--border-radius-sm);
+            border-top: 1px solid var(--border-color-light); /* Separator line */
+        }
+        .tool-tags-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px; /* More gap between tags */
+        }
+        .tool-tag {
+            background-color: var(--primary-accent);
+            color: var(--text-on-primary-bg);
+            padding: 4px 10px; /* Slightly larger tags */
+            border-radius: var(--border-radius-sm); /* Match other small elements */
+            font-size: 0.75em; /* 12px */
+            font-weight: 500;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+
+        /* Code Block Enhancements */
+        .message-bubble pre {
+            position: relative;
+            padding: 1em; margin: 1em 0;
+            background-color: #fdfaf2; /* Light cream background for code, paper-like */
+            border-radius: var(--border-radius-sm);
+            border: 1px solid var(--border-color-light); /* Subtle border */
+            color: var(--text-primary); /* Ensure default text color for code is readable */
+            box-shadow: var(--box-shadow-inset);
+        }
+         /* Highlight.js specific styling for text within the light code block */
+        .message-bubble pre code.hljs { 
+            font-size: 0.875em; 
+            line-height: 1.5;
+            color: #383a42; /* Default text color from atom-one-light, works well on cream */
+        }
+        .copy-code-button { /* General button styling */
+            border-radius: var(--border-radius-sm);
+            padding: 5px 9px;
+            font-size: 0.75em; /* 12px */
+            cursor: pointer;
+            opacity: 0.7;
+            transition: opacity 0.2s, background-color 0.2s, color 0.2s;
+            border: 1px solid transparent;
+        }
+        .message-bubble pre .copy-code-button { /* Specific to pre blocks */
+            position: absolute;
+            top: 10px; right: 10px; 
+            background-color: rgba(93, 64, 55, 0.06); /* Warm, subtle button */
+            color: var(--text-secondary); 
+            border-color: transparent; /* Remove border, rely on bg */
+        }
+        .message-bubble pre:hover .copy-code-button { opacity: 1; }
+        .message-bubble pre .copy-code-button:hover { background-color: rgba(93, 64, 55, 0.1); }
+        .message-bubble pre .copy-code-button.copied { 
+            background-color: var(--primary-accent); 
+            color: var(--text-on-primary-bg); 
+            opacity: 1;
+        }
+
+        /* Input Area Styling */
+        #input-area {
+            display: flex; padding: 20px 28px; /* Match side panel horizontal padding */
+            border-top: 1px solid var(--border-color);
+            background-color: var(--side-panel-bg); /* Match side panel for cohesion */
+            gap: 12px; align-items: center;
+            box-shadow: 0 -2px 5px rgba(0,0,0,0.02); /* Subtle top shadow */
+        }
+        #userInput {
+            flex-grow: 1; padding: 14px 18px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius); /* Larger radius for input */
+            font-size: 0.9375em; /* 15px */
+            font-family: var(--font-family-sans);
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+            background-color: var(--surface-color);
+            box-shadow: var(--box-shadow-inset);
+        }
+        #userInput:focus {
+            outline: none; border-color: var(--primary-accent);
+            box-shadow: var(--box-shadow-inset), 0 0 0 3px rgba(0, 119, 204, 0.15);
+        }
+        #sendButton {
+            padding: 14px 20px;
+            background: var(--primary-accent);
+            color: white; border: none;
+            border-radius: var(--border-radius); /* Match input field */
+            cursor: pointer;
+            font-size: 0.9375em; /* 15px */
+            font-family: var(--font-family-sans);
+            font-weight: 600; display: flex; align-items: center; gap: 8px;
+            transition: background-color 0.2s ease, transform 0.1s ease;
+            box-shadow: var(--box-shadow-soft);
+        }
+        #sendButton:hover { background-color: var(--primary-accent-darker); transform: translateY(-1px); }
+        #sendButton:active { transform: translateY(0px); background-color: #004c8c; } /* Even darker on active */
+        #sendButton:disabled { background: #adb5bd; cursor: not-allowed; box-shadow: none; transform: none; }
+        #sendButton svg { width: 18px; height: 18px; }
+
+        /* Loading Spinner */
+        .loading-indicator-content {
+            display: flex; align-items: center; font-style: italic;
+            color: var(--text-secondary); font-size: 0.9em;
+        }
+        .loader {
+            border: 3px solid #f0f0f0; /* Lighter track for loader */
+            border-top: 3px solid var(--primary-accent);
+            border-radius: 50%;
+            width: 16px; height: 16px; /* Slightly smaller */
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 10px; height: 10px; } /* Slightly wider scrollbar */
+        ::-webkit-scrollbar-track { background: rgba(0,0,0,0.04); }
+        ::-webkit-scrollbar-thumb { background: #ced4da; border-radius: 5px; }
+        ::-webkit-scrollbar-thumb:hover { background: #adb5bd; }
+
+        /* Modal Styling Refinements */
+        .modal {
+            display: none; 
+            position: fixed; z-index: 1000; 
+            left: 0; top: 0;
+            width: 100%; height: 100%; 
+            overflow: auto; 
+            background-color: rgba(93, 64, 55, 0.3); /* Warmer, softer backdrop */
+            backdrop-filter: blur(2px); 
+        }
+        .modal-content {
+            background-color: var(--surface-bg); /* Use the paper-like surface */
+            margin: 8% auto; /* Slightly less margin from top */
+            padding: 32px; /* More padding */
+            border: none; /* Remove border, rely on shadow */
+            width: 65%; 
+            max-width: 760px;
+            border-radius: var(--border-radius); /* Consistent radius */
+            box-shadow: var(--box-shadow-strong); 
+            position: relative;
+        }
+        .modal-close-button {
+            color: var(--text-tertiary);
+            background-color: transparent;
+            border: none;
+            border-radius: 50%;
+            width: 36px; height: 36px;
+            display: flex; align-items: center; justify-content: center;
+            position: absolute;
+            top: 16px; right: 16px;
+            font-size: 24px;
+            font-weight: normal; /* Not bold */
+            line-height: 1;
+            transition: color 0.2s ease, background-color 0.2s ease;
+        }
+        .modal-close-button:hover,
+        .modal-close-button:focus {
+            color: var(--text-primary);
+            background-color: rgba(0,0,0,0.05);
+            text-decoration: none;
+            cursor: pointer;
+        }
+        #modal-tool-name { /* Modal Title */
+            font-size: 1.5em; /* Larger title */
+            color: var(--text-primary);
+            margin-bottom: 12px;
+        }
+        #modal-tool-description {
+            font-size: 0.9375em; /* 15px */
+            color: var(--text-secondary);
+            margin-bottom: 24px;
+        }
+        .modal-content h3 { /* "Implementation / Schema:" heading */
+            font-size: 0.875em; /* 14px */
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        #modal-tool-code-container {
+             background-color: #fdfaf2; /* Match code block bg in chat */
+             border-radius: var(--border-radius-sm);
+             padding: 1.2em; 
+             margin-top: 10px;
+             max-height: 350px; 
+             overflow-y: auto;
+             border: 1px solid var(--border-color-light); 
+        }
+        #modal-tool-code-container pre {
+            margin: 0; 
+            white-space: pre-wrap;     
+            word-wrap: break-word;      
+        }
+        #modal-tool-code-container code.hljs { 
+             font-family: Consolas, Monaco, 'Andale Mono', 'Ubuntu Mono', monospace; 
+             font-size: 0.875em; 
+             line-height: 1.5;
+             color: #383a42; /* Match chat code block text */
+        }
+        #modal-tool-code-container .copy-code-button {
+            background-color: rgba(93, 64, 55, 0.06); /* Warm, subtle */
+            color: var(--text-secondary);
+            border-color: transparent;
+        }
+        #modal-tool-code-container pre:hover .copy-code-button { opacity: 1; }
+        #modal-tool-code-container .copy-code-button:hover { background-color: rgba(93, 64, 55, 0.1); }
+        #modal-tool-code-container .copy-code-button.copied { 
+            background-color: var(--primary-accent); 
+            color: var(--text-on-primary-bg); 
+            opacity: 1;
+        }
+
+        /* Container for bubble+timestamp (no changes from before, just ensuring it's here) */
+        .message-container {
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+        }
+        .message-group.user-message-group .message-container {
+            align-items: flex-end;
+        }
+        .message-group.agent-message-group .message-container {
+            align-items: flex-start;
+        }
+    </style>
+</head>
+<body>
+    <div id="main-container">
+        <div id="side-panel">
+            <div class="model-selector-container">
+                <label for="model-selector">Select Model:</label>
+                <select id="model-selector" name="model-selector">
+                    <!-- Options will be populated by JavaScript -->
+                </select>
+            </div>
+            <h2>System Dashboard</h2>
+            <h3 id="predefined-tools-heading">Predefined Tools</h3>
+            <ul id="predefined-tools-list" class="tool-list"></ul>
+            <h3 id="dynamic-tools-heading">Dynamic Tools</h3>
+            <ul id="dynamic-tools-list" class="tool-list"></ul>
+            <h3 id="api-keys-heading">Available API Keys</h3>
+            <ul id="api-keys-list"></ul>
+        </div>
+
+        <div id="chat-container">
+            <div id="chat-title-bar">
+                <h2>Conversation</h2>
+            </div>
+            <div id="chatbox">
+                <!-- Initial agent message will be prepended here by JS -->
+            </div>
+            <div id="input-area">
+                <input type="text" id="userInput" placeholder="Ask me anything..." onkeypress="handleKeyPress(event)">
+                <button id="sendButton" onclick="sendMessage()">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" /></svg>
+                    <span>Send</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- The Modal -->
+    <div id="tool-modal" class="modal">
+        <div class="modal-content">
+            <span class="modal-close-button" onclick="closeToolModal()">&times;</span>
+            <h2 id="modal-tool-name">Tool Name</h2>
+            <p id="modal-tool-description">Tool description goes here.</p>
+            <h3>Implementation / Schema:</h3>
+            <div id="modal-tool-code-container">
+                 <pre><code id="modal-tool-code" class="language-python"># Code or schema will be loaded here...</code></pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            hljs.configure({languages: [], ignoreUnescapedHTML: true });
+            updateSidePanelInfo();
+            initializeModelSelector();
+            appendInitialAgentMessage("Hello! I am your advanced AI assistant. How can I help you today?");
+        });
+
+        const userInput = document.getElementById('userInput');
+        const chatbox = document.getElementById('chatbox');
+        let currentAgentMessageGroup = null; // To hold logs for the current agent interaction
+        let currentLogBuffer = []; // Buffer for all logs of the current interaction
+
+        function appendInitialAgentMessage(text) {
+            const agentMessageGroupId = `agent-message-group-${Date.now()}`;
+            const messageGroup = createMessageGroup('agent', agentMessageGroupId);
+            
+            const bubble = messageGroup.querySelector('.message-bubble .message-content');
+            const unsafeHtml = marked.parse(text);
+            bubble.innerHTML = DOMPurify.sanitize(unsafeHtml);
+            
+            const timestampElem = messageGroup.querySelector('.timestamp');
+            timestampElem.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            chatbox.appendChild(messageGroup);
+            applySyntaxHighlighting(messageGroup);
+            chatbox.scrollTop = chatbox.scrollHeight;
+        }
+
+        async function sendMessage() {
+            const messageText = userInput.value.trim();
+            if (!messageText) return;
+
+            appendMessageToChat(messageText, 'user');
+            userInput.value = '';
+            userInput.disabled = true;
+            document.getElementById('sendButton').disabled = true;
+
+            // Create a placeholder for the agent's response and logs
+            const agentMessageGroupId = `agent-message-group-${Date.now()}`;
+            currentAgentMessageGroup = createMessageGroup('agent', agentMessageGroupId);
+            const bubbleContentElement = currentAgentMessageGroup.querySelector('.message-bubble .message-content');
+            appendLoadingIndicator(bubbleContentElement); // This will now also create live-log-feed div
+            chatbox.appendChild(currentAgentMessageGroup);
+            chatbox.scrollTop = chatbox.scrollHeight;
+            
+            const encodedMessage = encodeURIComponent(messageText);
+            const eventSourceUrl = `/send_message?message=${encodedMessage}`;
+
+            currentLogBuffer = []; // Clear buffer for new interaction
+
+            const eventSource = new EventSource(eventSourceUrl);
+
+            const liveLogFeed = currentAgentMessageGroup.querySelector('.live-log-feed');
+
+            eventSource.onmessage = function(event) { // Handles log messages
+                if (!currentAgentMessageGroup) return;
+
+                const logData = event.data.replace(/\n/g, '\n'); // Keep escaped newlines for Markdown
+                currentLogBuffer.push(logData); // Add to buffer for later full log display
+
+                if (liveLogFeed) {
+                    // Display only the latest log message in the live feed
+                    const latestLogHtml = DOMPurify.sanitize(marked.parseInline(logData)); // Use parseInline for a single line
+                    liveLogFeed.innerHTML = latestLogHtml;
+                    // No need to apply full syntax highlighting here as it's a live, single line
+                }
+                chatbox.scrollTop = chatbox.scrollHeight;
+            };
+
+            function handleStreamEndOrError() {
+                removeLoadingIndicator(currentAgentMessageGroup);
+                // Ensure any buffered logs are processed and displayed in the details section
+                if (currentAgentMessageGroup && currentLogBuffer.length > 0) {
+                    const logContentDiv = ensureLogDetailsContainer(currentAgentMessageGroup, true); // true to make button visible
+                    currentLogBuffer.forEach(logText => {
+                        const logEntry = document.createElement('div');
+                        logEntry.classList.add('log-entry');
+                        const unsafeLogHtml = marked.parse(logText);
+                        logEntry.innerHTML = DOMPurify.sanitize(unsafeLogHtml);
+                        logContentDiv.appendChild(logEntry);
+                        applySyntaxHighlighting(logEntry);
+                    });
+                    if(logContentDiv.childNodes.length > 0 && logContentDiv.parentElement.querySelector('.log-toggle-button')){
+                         logContentDiv.parentElement.querySelector('.log-toggle-button').style.display = 'inline-flex';
+                    }
+                    logContentDiv.scrollTop = logContentDiv.scrollHeight;
+                }
+                currentLogBuffer = []; // Clear buffer
+                enableUI();
+                if (eventSource) eventSource.close();
+                updateSidePanelInfo();
+                currentAgentMessageGroup = null; // Reset for next interaction
+            }
+
+            eventSource.addEventListener('final_reply', function(event) {
+                if (!currentAgentMessageGroup) return; // Should not happen if stream is orderly
+                
+                // Clear live log feed if it exists
+                if (liveLogFeed) liveLogFeed.innerHTML = '';
+
+                const finalReplyData = event.data.trim(); // Trim leading/trailing whitespace
+
+                // Un-escape the double-escaped newlines from SSE
+                const unescapedData = finalReplyData.replace(/\\n/g, '\n'); 
+
+                console.log("DEBUG: Final Reply Data (raw from event, trimmed):", JSON.stringify(finalReplyData)); 
+                console.log("DEBUG: Final Reply Data (after un-escaping \\n):", JSON.stringify(unescapedData));
+
+                const bubbleContent = currentAgentMessageGroup.querySelector('.message-bubble .message-content');
+                
+                // Use marked.parse again with GFM and breaks enabled
+                const unsafeHtml = marked.parse(unescapedData, { gfm: true, breaks: true }); 
+                
+                console.log("DEBUG: HTML from marked.parse (before sanitize):", unsafeHtml);
+
+                bubbleContent.innerHTML = DOMPurify.sanitize(unsafeHtml);
+                
+                const timestampElem = currentAgentMessageGroup.querySelector('.timestamp');
+                timestampElem.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+                applySyntaxHighlighting(currentAgentMessageGroup);
+
+                // --- Display Used Tools ---
+                const toolsSummaryPrefix = "tools_used_summary: ";
+                const toolsLogEntry = currentLogBuffer.find(log => log.startsWith(toolsSummaryPrefix));
+
+                if (toolsLogEntry) {
+                    try {
+                        const toolsJsonString = toolsLogEntry.substring(toolsSummaryPrefix.length);
+                        const toolsUsed = JSON.parse(toolsJsonString);
+
+                        if (Array.isArray(toolsUsed) && toolsUsed.length > 0) {
+                            const toolsInfoDiv = document.createElement('div');
+                            toolsInfoDiv.classList.add('used-tools-info');
+
+                            const tagsContainer = document.createElement('div');
+                            tagsContainer.classList.add('tool-tags-container');
+
+                            toolsUsed.forEach(toolName => {
+                                const toolTag = document.createElement('span');
+                                toolTag.classList.add('tool-tag');
+                                toolTag.textContent = toolName;
+                                tagsContainer.appendChild(toolTag);
+                            });
+                            toolsInfoDiv.appendChild(tagsContainer);
+                            bubbleContent.appendChild(toolsInfoDiv);
+                            chatbox.scrollTop = chatbox.scrollHeight; // Ensure visibility
+                        }
+                    } catch (e) {
+                        console.error("Error parsing tools_used_summary:", e, toolsLogEntry);
+                    }
+                }
+                // --- End Display Used Tools ---
+
+                // Buffered logs are handled by handleStreamEndOrError which is called next
+                handleStreamEndOrError();
+            });
+
+            eventSource.addEventListener('stream_error', function(event) {
+                if (currentAgentMessageGroup) {
+                    removeLoadingIndicator(currentAgentMessageGroup);
+                    if (liveLogFeed) liveLogFeed.innerHTML = ''; // Clear live log feed
+                    const bubbleContent = currentAgentMessageGroup.querySelector('.message-bubble .message-content');
+                    const errorData = event.data.replace(/\n/g, '\n');
+                    bubbleContent.innerHTML = DOMPurify.sanitize(`<p>Stream Error: ${marked.parseInline(errorData)}</p>`);
+                } else {
+                    appendMessageToChat(`Stream Error: ${event.data.replace(/\n/g, '\n')}`, 'agent');
+                }
+                // Buffered logs are handled by handleStreamEndOrError which is called next
+                handleStreamEndOrError();
+            });
+
+            eventSource.addEventListener('stream_end', function(event) {
+                console.log("Stream ended by server.");
+                if (liveLogFeed) liveLogFeed.innerHTML = ''; // Clear live log feed
+                // If loading indicator is still there but no final reply, clear it.
+                if (currentAgentMessageGroup && currentAgentMessageGroup.querySelector('.loading-indicator-content')) {
+                     const bubbleContent = currentAgentMessageGroup.querySelector('.message-bubble .message-content');
+                     if (!bubbleContent.innerHTML.includes('loader')) { // if only loader was there
+                        bubbleContent.innerHTML = DOMPurify.sanitize('<p><em>(No final response received before stream end)</em></p>');
+                     }
+                }
+                // Buffered logs are handled by handleStreamEndOrError which is called next
+                handleStreamEndOrError();
+            });
+            
+            eventSource.onerror = function(error) {
+                console.error('EventSource failed:', error);
+                if (liveLogFeed) liveLogFeed.innerHTML = ''; // Clear live log feed
+                if (currentAgentMessageGroup) {
+                    removeLoadingIndicator(currentAgentMessageGroup);
+                    const bubbleContent = currentAgentMessageGroup.querySelector('.message-bubble .message-content');
+                    bubbleContent.innerHTML = DOMPurify.sanitize('<p>Connection error. Please try again.</p>');
+                } else {
+                    appendMessageToChat('Connection error. Please try again.', 'agent');
+                }
+                // Buffered logs are handled by handleStreamEndOrError which is called next
+                handleStreamEndOrError();
+            };
+        }
+        
+        function createMessageGroup(type, id) {
+            const group = document.createElement('div');
+            group.classList.add('message-group', `${type}-message-group`);
+            group.id = id;
+
+            const avatar = document.createElement('div');
+            avatar.classList.add('avatar', `${type}-avatar`);
+            
+            // Re-introduce the container for bubble and timestamp
+            const messageContainer = document.createElement('div');
+            messageContainer.classList.add('message-container');
+
+            const bubble = document.createElement('div');
+            bubble.classList.add('message-bubble');
+            const content = document.createElement('div');
+            content.classList.add('message-content');
+            bubble.appendChild(content);
+
+            const timestamp = document.createElement('div');
+            timestamp.classList.add('timestamp');
+            
+            // Append bubble and timestamp to their container
+            messageContainer.appendChild(bubble);
+            messageContainer.appendChild(timestamp);
+
+            if (type === 'user') {
+                // User DOM order: Bubble, Timestamp, Avatar
+                // Visually (due to row-reverse on group): Avatar, Timestamp, Bubble
+                group.appendChild(messageContainer); 
+                group.appendChild(avatar);
+            } else {
+                // Agent DOM order: Avatar, Timestamp, Bubble
+                // Visually (due to row on group): Avatar, Timestamp, Bubble
+                group.appendChild(avatar);
+                group.appendChild(messageContainer); 
+            }
+            return group;
+        }
+
+        function appendMessageToChat(text, type) {
+            const messageGroupId = `${type}-message-group-${Date.now()}`;
+            const messageGroup = createMessageGroup(type, messageGroupId);
+            
+            const bubbleContent = messageGroup.querySelector('.message-bubble .message-content');
+            const unsafeHtml = marked.parse(text);
+            bubbleContent.innerHTML = DOMPurify.sanitize(unsafeHtml);
+            
+            const timestampElem = messageGroup.querySelector('.timestamp');
+            timestampElem.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            chatbox.appendChild(messageGroup);
+            applySyntaxHighlighting(messageGroup);
+            chatbox.scrollTop = chatbox.scrollHeight;
+            return messageGroup;
+        }
+        
+        function ensureLogDetailsContainer(agentMessageGroup, makeButtonVisible = false) {
+            let logDetailsDiv = agentMessageGroup.querySelector('.log-details');
+            if (!logDetailsDiv) {
+                const bubble = agentMessageGroup.querySelector('.message-bubble');
+                
+                const toggleButton = document.createElement('button');
+                toggleButton.classList.add('log-toggle-button');
+                // Initially hide the button for active streams, show if makeButtonVisible is true (for completed streams)
+                toggleButton.style.display = makeButtonVisible ? 'inline-flex' : 'none'; 
+                toggleButton.innerHTML = `<svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path></svg> View Logs`;
+                
+                logDetailsDiv = document.createElement('div');
+                logDetailsDiv.classList.add('log-details');
+                
+                bubble.appendChild(toggleButton);
+                bubble.appendChild(logDetailsDiv);
+
+                // Only set onclick if the button is meant to be interactive from the start or becomes visible
+                // This ensures it's properly set up when logs are populated post-stream.
+                if(makeButtonVisible || toggleButton.style.display !== 'none') {
+                    toggleButton.onclick = () => {
+                        logDetailsDiv.classList.toggle('active');
+                        toggleButton.innerHTML = logDetailsDiv.classList.contains('active') 
+                            ? `<svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path></svg> Hide Logs` 
+                            : `<svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path></svg> View Logs`;
+                    };
+                } else {
+                     // If button is initially hidden, setup its click listener later when it becomes visible
+                     // This is handled when logs are populated in handleStreamEndOrError
+                }
+            }
+            return logDetailsDiv;
+        }
+
+        function appendLoadingIndicator(container) {
+            const loadingDiv = document.createElement('div');
+            loadingDiv.classList.add('loading-indicator-content');
+            const loaderSpan = document.createElement('span');
+            loaderSpan.classList.add('loader');
+            loadingDiv.appendChild(loaderSpan);
+            loadingDiv.appendChild(document.createTextNode('Thinking...'));
+
+            const liveLogArea = document.createElement('div');
+            liveLogArea.classList.add('live-log-feed');
+            liveLogArea.style.fontSize = '0.8em';
+            liveLogArea.style.marginTop = '8px';
+            liveLogArea.style.color = 'var(--text-tertiary)';
+            liveLogArea.innerHTML = '<i>Waiting for updates...</i>';
+
+            container.innerHTML = ''; // Clear previous content (like "Thinking...")
+            container.appendChild(loadingDiv);
+            container.appendChild(liveLogArea);
+        }
+
+        function removeLoadingIndicator(agentMessageGroup) {
+            if (agentMessageGroup) {
+                const indicator = agentMessageGroup.querySelector('.loading-indicator-content');
+                if (indicator) {
+                    // If the bubble content is ONLY the indicator, clear it.
+                    // Otherwise, the final reply will overwrite it.
+                    if (indicator.parentElement.childNodes.length === 1) {
+                         indicator.parentElement.innerHTML = '';
+                    } else {
+                        indicator.remove();
+                    }
+                }
+            }
+        }
+        
+        function applySyntaxHighlighting(element) {
+            element.querySelectorAll('pre code:not(.hljs)').forEach(block => {
+                hljs.highlightElement(block);
+                // Add copy button if not already present
+                if (!block.parentElement.querySelector('.copy-code-button')) {
+                    const copyButton = document.createElement('button');
+                    copyButton.classList.add('copy-code-button');
+                    copyButton.textContent = 'Copy';
+                    copyButton.onclick = () => {
+                        navigator.clipboard.writeText(block.innerText)
+                            .then(() => {
+                                copyButton.textContent = 'Copied!';
+                                copyButton.classList.add('copied');
+                                setTimeout(() => {
+                                    copyButton.textContent = 'Copy';
+                                    copyButton.classList.remove('copied');
+                                }, 2000);
+                            })
+                            .catch(err => console.error('Failed to copy code: ', err));
+                    };
+                    block.parentElement.appendChild(copyButton);
+                }
+            });
+        }
+
+        function enableUI() {
+            // Ensure modal is closed when UI is re-enabled
+            closeToolModal(); 
+            userInput.disabled = false;
+            document.getElementById('sendButton').disabled = false;
+            userInput.focus();
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter' && !userInput.disabled) {
+                sendMessage();
+            } else if (event.key === 'Escape') { // Close modal on Escape key
+                closeToolModal();
+            }
+        }
+
+        // Add event listener for tool clicks using event delegation
+        document.getElementById('side-panel').addEventListener('click', function(event) {
+            const listItem = event.target.closest('li[data-tool-name]');
+            if (listItem) {
+                const toolName = listItem.dataset.toolName;
+                const toolType = listItem.dataset.toolType;
+                const toolDescription = listItem.querySelector('span')?.textContent || 'No description.'; // Get description from UI temporarily
+                console.log(`Clicked tool: ${toolName} (Type: ${toolType})`);
+                openToolModal(toolName, toolType, toolDescription); 
+            }
+        });
+
+        // Modal Functions
+        const toolModal = document.getElementById('tool-modal');
+
+        async function openToolModal(toolName, toolType, initialDescription) {
+            document.getElementById('modal-tool-name').textContent = toolName;
+            // Use initialDescription from side panel first, then update if backend provides more detail
+            document.getElementById('modal-tool-description').textContent = initialDescription;
+            const codeElement = document.getElementById('modal-tool-code');
+            
+            codeElement.textContent = `Fetching details for ${toolName}...`;
+            codeElement.className = 'language-plaintext'; // Default class while loading
+            hljs.highlightElement(codeElement); // Basic highlight for loading message
+
+            toolModal.style.display = 'block'; // Show modal before fetching so user sees loading state
+
+            try {
+                const response = await fetch(`/get_tool_details/${toolName}`);
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ details: "Failed to fetch tool details. Server returned an error."}));
+                    throw new Error(errorData.error || `HTTP error! Status: ${response.status}`);
+                }
+                const data = await response.json();
+
+                // Update description from fetched data if available and different
+                if (data.description && data.description !== initialDescription) {
+                    document.getElementById('modal-tool-description').textContent = data.description;
+                }
+                
+                codeElement.textContent = data.details; // This is the code or JSON schema string
+
+                if (data.type === 'predefined') {
+                    // Use details_format to determine language for predefined tools
+                    if (data.details_format === 'python') {
+                        codeElement.className = 'language-python';
+                    } else if (data.details_format === 'json') {
+                        codeElement.className = 'language-json';
+                    } else {
+                        codeElement.className = 'language-plaintext'; // Fallback for errors
+                    }
+                } else if (data.type === 'dynamic') {
+                    // Dynamic tools are primarily Python, but check details_format for robustness
+                    if (data.details_format === 'python') {
+                        codeElement.className = 'language-python';
+                    } else {
+                        codeElement.className = 'language-plaintext'; // Fallback if format isn't python (e.g. file read error)
+                    }
+                } else { // For types like "predefined_error", "dynamic_error", "dynamic_not_found"
+                    codeElement.className = 'language-plaintext'; // Display error messages as plain text
+                }
+                hljs.highlightElement(codeElement); // Re-apply highlighting with correct language
+
+            } catch (error) {
+                console.error('Error fetching tool details:', error);
+                document.getElementById('modal-tool-description').textContent = "Could not load tool details.";
+                codeElement.textContent = `# Error: ${error.message}`;
+                codeElement.className = 'language-plaintext';
+                hljs.highlightElement(codeElement);
+            }
+        }
+
+        function closeToolModal() {
+            if (toolModal) {
+                toolModal.style.display = 'none';
+                // Clear content when closing
+                document.getElementById('modal-tool-name').textContent = 'Tool Name';
+                document.getElementById('modal-tool-description').textContent = 'Tool description goes here.';
+                document.getElementById('modal-tool-code').textContent = '# Code or schema will be loaded here...';
+                document.getElementById('modal-tool-code').className = 'language-python';
+            }
+        }
+
+        // Close modal if user clicks outside of the modal content
+        window.onclick = function(event) {
+            if (event.target == toolModal) {
+                closeToolModal();
+            }
+        }
+
+        async function updateSidePanelInfo() {
+            try {
+                const response = await fetch('/get_system_info');
+                if (!response.ok) { console.error("Failed to fetch system info:", response.status); return; }
+                const info = await response.json();
+                // Pass tool type to populateList formatter
+                populateList('predefined-tools-list', info.predefined_tools, 'predefined', 
+                    item => `<strong>${item.name}</strong><span>${item.description || 'N/A'}</span>`);
+                populateList('dynamic-tools-list', info.dynamic_tools, 'dynamic', 
+                    item => `<strong>${item.name}</strong><span>${item.description || 'User-generated'}</span>`);
+                // API keys don't need the modal functionality
+                populateList('api-keys-list', info.api_keys, 'api', 
+                    item => `<strong>${item.name}</strong><span>${item.service || 'N/A'}: ${item.description || 'N/A'}</span>`);
+            } catch (error) { console.error("Error updating side panel info:", error); }
+        }
+
+        function populateList(listId, items, itemType, formatter) {
+            const listElement = document.getElementById(listId);
+            if (!listElement) return;
+            listElement.innerHTML = '';
+            if (items && items.length > 0) {
+                items.forEach(item => {
+                    const li = document.createElement('li');
+                    // Add data attributes if it's a tool
+                    if (itemType === 'predefined' || itemType === 'dynamic') {
+                        li.dataset.toolName = item.name;
+                        li.dataset.toolType = itemType;
+                        li.style.cursor = 'pointer'; // Indicate clickability
+                    }
+                    li.innerHTML = formatter(item);
+                    listElement.appendChild(li);
+                });
+            } else {
+                const li = document.createElement('li');
+                li.innerHTML = '<em>None available.</em>';
+                listElement.appendChild(li);
+            }
+        }
+
+        // --- Model Selector Logic (Phase 1) ---
+        const modelSelector = document.getElementById('model-selector');
+        const availableModels = [
+            { name: "Gemini 2.5 Pro", id: "gemini-2.5-pro-preview-05-06" },
+            { name: "Gemini 2.5 Flash", id: "gemini-2.5-flash-preview-04-17" },
+            { name: "Gemini 2.0 Flash", id: "gemini-2.0-flash" }
+        ];
+
+        function initializeModelSelector() {
+            availableModels.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model.id;
+                option.textContent = model.name;
+                modelSelector.appendChild(option);
+            });
+
+            // Load saved model from localStorage
+            const savedModel = localStorage.getItem('selectedAiModel');
+            if (savedModel && availableModels.some(m => m.id === savedModel)) {
+                modelSelector.value = savedModel;
+            } else if (availableModels.length > 0) {
+                // Fallback to the first model if no valid saved model or if saved model is not in current list
+                modelSelector.value = availableModels[0].id;
+                localStorage.setItem('selectedAiModel', availableModels[0].id); // Save the default
+            }
+
+            modelSelector.addEventListener('change', (event) => {
+                const selectedModelId = event.target.value;
+                localStorage.setItem('selectedAiModel', selectedModelId);
+                console.log(`Selected AI Model (UI): ${selectedModelId}`);
+                // TODO (Phase 2): Send this selectedModelId to the backend
+                // For now, we'll just log it and potentially show a UI confirmation/trigger a refresh if needed.
+                // Example: alert(`Model changed to: ${selectedModelId}. Backend update pending.`);
+            });
+        }
+    </script>
+</body>
+</html>

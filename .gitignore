@@ -1,2 +1,4 @@
 .env
 .api_keys.json
+.api_keys.yaml
+__pycache__
