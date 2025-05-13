@@ -80,17 +80,28 @@ JSON Response:
 refactor_dynamic_tools_prompt = """
 You are an expert Python code refactoring assistant. Your task is to analyze a list of dynamically generated Python tool functions and identify opportunities for generalization.
 
-If you find two or more tools that perform very similar tasks but are hardcoded for specific parameters (e.g., different weather tools for specific cities, different search tools for specific keywords), you should:
+IMPORTANT: Be VERY CONSERVATIVE in your generalization recommendations. Only suggest generalizing tools when there is a STRONG, CLEAR pattern of nearly identical code structure and purpose.
+
+If you find two or more tools that perform NEARLY IDENTICAL tasks but are hardcoded for specific parameters, you should ONLY consider generalization if ALL of these criteria are met:
+1. The tools use the EXACT SAME external API or service
+2. The tools have VERY SIMILAR code structure (>80% code similarity)
+3. The tools differ ONLY in simple parameter values (e.g., different city names, different search terms)
+4. The generalization is OBVIOUS and STRAIGHTFORWARD (not requiring complex logic)
+5. The tools serve the SAME PURPOSE (e.g., don't merge a weather lookup tool with a general search tool even if they use similar HTTP request patterns)
+
+If you find tools meeting ALL these strict criteria, you should:
 1.  Design a new, single, generalized Python function that can replace these specific tools. This new function MUST:
     a.  Accept parameters to cover the variations of the old tools (e.g., a `city` parameter, a `search_query` parameter).
     b.  Have a generic name that reflects its broader purpose (e.g., `get_weather`, `search_internet`). The name should be descriptive and clearly indicate the function's action and the type of data it handles (e.g., `get_weather_for_city`, `search_web_for_query`, `get_stock_price_for_symbol`). Avoid overly generic names like `get_data` or `call_api`.
     c.  Retrieve any necessary API keys from environment variables using `os.environ.get('KEY_NAME')`.
     d.  Include all necessary imports.
     e.  Handle potential errors gracefully.
-    f.  **Crucially, the tools being merged should generally be using the same underlying external API or service.** The generalization should focus on parameterizing the inputs to that common API, not on trying to combine fundamentally different API integrations.
+    f.  **Crucially, the tools being merged should use the EXACT SAME underlying external API or service.** The generalization should focus on parameterizing the inputs to that common API, not on trying to combine fundamentally different API integrations.
 2.  Specify the names of the old, specific tool functions that this new generalized function replaces.
 
-If no clear opportunities for generalization are found among the provided tools, or if there are fewer than two tools, respond with null values for the new tool and removal list.
+If there is ANY DOUBT about whether tools should be generalized, DO NOT generalize them. It's better to have multiple specific tools than an overgeneralized tool that might not work correctly for all cases.
+
+If no clear opportunities for generalization are found among the provided tools, or if there are fewer than two tools, or if the tools don't meet ALL the strict criteria above, respond with null values for the new tool and removal list.
 
 Provided Tool Codes:
 ----------------------

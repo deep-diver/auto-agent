@@ -9,6 +9,7 @@ import tool_manager # Import the new module
 import traceback
 from unittest.mock import patch # For sandboxed testing
 from typing import Generator # For type hinting the generator
+import random
 
 # Import definitions from separate files
 from tools import available_tools
@@ -53,7 +54,7 @@ def refresh_api_keys_and_configure_gemini(api_keys_file_path=".api_keys.yaml"):
 
     if os.path.exists(api_keys_file_path):
         try:
-            with open(api_keys_file_path, 'r') as f:
+            with open(api_keys_file_path, 'r', encoding='utf-8') as f:
                 api_keys_from_file = yaml.safe_load(f)
             
             if isinstance(api_keys_from_file, dict):
@@ -108,7 +109,7 @@ loaded_api_keys_details = {} # Store details for later use
 
 if os.path.exists(api_keys_file_path_initial):
     try:
-        with open(api_keys_file_path_initial, 'r') as f:
+        with open(api_keys_file_path_initial, 'r', encoding='utf-8') as f:
             api_keys_from_file = yaml.safe_load(f) # Use yaml.safe_load
         if isinstance(api_keys_from_file, dict):
             for key_name, key_data in api_keys_from_file.items():
@@ -591,27 +592,33 @@ def handle_web_request(user_query: str) -> Generator[str, None, None]:
         yield f"log: Saving new tool(s) to persistent registry: {', '.join(successfully_added_tools)}"
         tool_manager.save_dynamic_tool(successfully_added_tools, generated_tool_code_str)
 
-        # --- Attempt to refactor the tool registry (with retry) --- 
-        refactor_success = False
-        for ref_attempt in range(1, MAX_RETRIES + 1):
-            yield f"log: Attempt {ref_attempt}/{MAX_RETRIES} to refactor tool registry..."
-            try:
-                refactor_result = tool_manager.refactor_tool_registry()
-                refactor_success = True # Assume success if no exception
-                yield f"log: Refactoring attempt {ref_attempt} successful."
-                # Log details from refactor result if any
-                if isinstance(refactor_result, list):
-                    for ref_log in refactor_result: yield f"log: [Refactor] {ref_log}"
-                elif isinstance(refactor_result, str): yield f"log: [Refactor] {refactor_result}"
-                break # Exit refactor retry loop on success
-            except Exception as ref_e:
-                yield f"log: Refactoring attempt {ref_attempt} failed: {ref_e}"
-                if ref_attempt < MAX_RETRIES:
-                    yield f"log: Retrying refactoring..."
-                    time.sleep(1)
-                else:
-                    yield f"log: Refactoring failed after {MAX_RETRIES} attempts."
-                    print(f"ERROR: Refactoring failed after {MAX_RETRIES} attempts.")
+        # --- Only attempt to refactor the tool registry with a 30% chance ---
+        should_attempt_refactor = random.random() <= 0.3  # 30% chance to attempt refactoring
+        
+        if should_attempt_refactor:
+            yield f"log: Randomly decided to attempt tool refactoring (30% chance)..."
+            refactor_success = False
+            for ref_attempt in range(1, MAX_RETRIES + 1):
+                yield f"log: Attempt {ref_attempt}/{MAX_RETRIES} to refactor tool registry..."
+                try:
+                    refactor_result = tool_manager.refactor_tool_registry()
+                    refactor_success = True # Assume success if no exception
+                    yield f"log: Refactoring attempt {ref_attempt} successful."
+                    # Log details from refactor result if any
+                    if isinstance(refactor_result, list):
+                        for ref_log in refactor_result: yield f"log: [Refactor] {ref_log}"
+                    elif isinstance(refactor_result, str): yield f"log: [Refactor] {refactor_result}"
+                    break # Exit refactor retry loop on success
+                except Exception as ref_e:
+                    yield f"log: Refactoring attempt {ref_attempt} failed: {ref_e}"
+                    if ref_attempt < MAX_RETRIES:
+                        yield f"log: Retrying refactoring..."
+                        time.sleep(1)
+                    else:
+                        yield f"log: Refactoring failed after {MAX_RETRIES} attempts."
+                        print(f"ERROR: Refactoring failed after {MAX_RETRIES} attempts.")
+        else:
+            yield f"log: Skipping tool refactoring (70% chance to skip)."
 
     # 2. Execute with Worker
     yield "log: Executing request with Gemini worker and available tools..."

@@ -1,225 +1,93 @@
 - tool_names:
-  - multiply
-  code: "import os\n\ndef multiply(a: float, b: float) -> float:\n    \"\"\"\n   \
-    \ Multiplies two numbers.\n\n    Args:\n        a: The first number.\n       \
-    \ b: The second number.\n\n    Returns:\n        The product of a and b.\n   \
-    \ \n    Raises:\n        TypeError: If either a or b is not a number.\n    \"\"\
-    \"\n    if not (isinstance(a, (int, float)) and isinstance(b, (int, float))):\n\
-    \        # Returning an error message string that the LLM can understand and relay\n\
-    \        # is often better than raising an exception that might halt the flow.\n\
-    \        # However, for tool validation or critical errors, exceptions are appropriate.\n\
-    \        # For this case, let's assume the environment can catch and relay TypeErrors\
-    \ appropriately.\n        raise TypeError(\"Both arguments must be numbers (int\
-    \ or float).\")\n    return a * b\n"
-- tool_names:
-  - get_weather_data
-  code: "import requests\nimport os\n\ndef get_weather_data(city_name: str, units:\
-    \ str = \"metric\") -> dict:\n    \"\"\"\n    Fetches current weather data for\
-    \ a specified city using the OpenWeatherMap API.\n\n    Args:\n        city_name\
-    \ (str): The name of the city (e.g., \"London\", \"Seoul, KR\").\n        units\
-    \ (str): The units for temperature and other measurements.\n                 \
-    \    Can be 'metric' (Celsius, meter/sec), \n                     'imperial' (Fahrenheit,\
-    \ miles/hour), \n                     or 'standard' (Kelvin, meter/sec).\n   \
-    \                  Defaults to 'metric'.\n\n    Returns:\n        dict: A dictionary\
-    \ containing weather information including temperature,\n              condition,\
-    \ humidity, wind speed, and units, or an error message.\n              Example\
-    \ success: {'city': 'London', 'temperature': 10.5, 'temperature_unit': 'celsius',\
-    \ \n                                'condition': 'Clouds', 'description': 'overcast\
-    \ clouds', \n                                'humidity_percent': 70, 'wind_speed':\
-    \ 5.5, 'wind_speed_unit': 'meter/sec', 'error': None}\n              Example error:\
-    \ {'error': 'API key OPEN_WEATHER_API_KEY not found.'}\n    \"\"\"\n    api_key\
-    \ = os.environ.get('OPEN_WEATHER_API_KEY')\n    if not api_key:\n        return\
-    \ {\"error\": \"API key OPEN_WEATHER_API_KEY not found.\"}\n\n    base_url = \"\
+  - get_weather_for_location
+  code: "import requests\nimport os\nimport json\n\ndef get_weather_for_location(location_query:\
+    \ str) -> str:\n    \"\"\"\n    Fetches current weather data for a specified location\
+    \ using OpenWeatherMap API.\n\n    Args:\n        location_query: A string representing\
+    \ the location, e.g., \"City, CountryCode\" or \"City\".\n                   \
+    \     Examples: \"London, UK\", \"Tokyo\", \"Daejeon, South Korea\".\n\n    Returns:\n\
+    \        A JSON string containing structured weather information (location name,\
+    \ country code,\n        temperature in Celsius, feels like temperature in Celsius,\
+    \ weather description,\n        humidity percentage, wind speed in meters/sec)\
+    \ if successful.\n        Returns a JSON string with an \"error\" key if the API\
+    \ key is missing,\n        the location is not found, or any other error occurs\
+    \ during the API call.\n    \"\"\"\n    api_key = os.environ.get('OPEN_WEATHER_API_KEY')\n\
+    \    if not api_key:\n        return json.dumps({\"error\": \"OpenWeatherMap API\
+    \ key (OPEN_WEATHER_API_KEY) not found in environment.\"})\n\n    base_url = \"\
     https://api.openweathermap.org/data/2.5/weather\"\n    params = {\n        \"\
-    q\": city_name,\n        \"appid\": api_key,\n        \"units\": units\n    }\n\
-    \n    try:\n        response = requests.get(base_url, params=params)\n       \
-    \ response.raise_for_status()  # Raise an exception for HTTP errors (4xx or 5xx)\n\
-    \        data = response.json()\n    except requests.exceptions.HTTPError as http_err:\n\
-    \        if response.status_code == 401:\n            return {\"error\": \"Invalid\
-    \ API key. Please check your OPEN_WEATHER_API_KEY.\"}\n        elif response.status_code\
-    \ == 404:\n            return {\"error\": f\"Could not retrieve weather data for\
-    \ '{city_name}': City not found.\"}\n        else:\n            return {\"error\"\
-    : f\"HTTP error occurred: {http_err} - {response.text}\"}\n    except requests.exceptions.RequestException\
-    \ as req_err:\n        return {\"error\": f\"Network error occurred: {req_err}\"\
-    }\n    except ValueError: # Includes JSONDecodeError\n        return {\"error\"\
-    : \"Error parsing API response. Invalid JSON received.\"}\n\n    if data.get(\"\
-    cod\") != 200:\n        # This handles cases where API returns 200 but with an\
-    \ internal error code like in older OWM versions\n        # or if 'cod' is a string\
-    \ like '404' but somehow didn't raise HTTPError\n        error_message = data.get(\"\
-    message\", \"Unknown API error\")\n        return {\"error\": f\"Could not retrieve\
-    \ weather data for '{city_name}': {error_message} (cod: {data.get('cod')})\"}\n\
-    \n    # Extracting relevant information\n    try:\n        main_data = data.get(\"\
-    main\", {})\n        weather_info = data.get(\"weather\", [{}])[0]\n        wind_data\
-    \ = data.get(\"wind\", {})\n        city = data.get(\"name\", city_name) # Use\
-    \ API's city name if available\n\n        temp = main_data.get(\"temp\")\n   \
-    \     humidity = main_data.get(\"humidity\")\n        condition = weather_info.get(\"\
-    main\")\n        description = weather_info.get(\"description\")\n        wind_speed\
-    \ = wind_data.get(\"speed\")\n\n        if temp is None or condition is None:\
-    \ # Basic check for essential data\n            return {\"error\": f\"Incomplete\
-    \ weather data received for '{city_name}'.\"}\n\n        temp_unit = \"kelvin\"\
-    \n        wind_unit = \"meter/sec\" # Default for standard and metric\n      \
-    \  if units == \"metric\":\n            temp_unit = \"celsius\"\n        elif\
-    \ units == \"imperial\":\n            temp_unit = \"fahrenheit\"\n           \
-    \ wind_unit = \"miles/hour\"\n\n        return {\n            \"city\": city,\n\
-    \            \"temperature\": temp,\n            \"temperature_unit\": temp_unit,\n\
-    \            \"condition\": condition,\n            \"description\": description,\n\
-    \            \"humidity_percent\": humidity,\n            \"wind_speed\": wind_speed,\n\
-    \            \"wind_speed_unit\": wind_unit,\n            \"error\": None\n  \
-    \      }\n    except (IndexError, KeyError, TypeError) as e:\n        return {\"\
-    error\": f\"Error parsing weather data structure: {e}. Raw data: {data}\"}\n"
-- tool_names:
-  - search_web
-  code: "import os\nimport requests\nimport json\n\ndef search_web(query: str, gl:\
-    \ str = \"us\", hl: str = \"en\") -> dict:\n    \"\"\"Searches the web using the\
-    \ Serper API and returns structured results.\n\n    Args:\n        query: The\
-    \ search query string.\n        gl: The country code for geographical targeting\
-    \ (default: \"us\").\n        hl: The language code (default: \"en\").\n\n   \
-    \ Returns:\n        A dictionary containing search results, or an error message.\n\
-    \    \"\"\"\n    api_key = os.environ.get('SERPER_API_KEY')\n    if not api_key:\n\
-    \        return {\"error\": \"SERPER_API_KEY not found in environment. Please\
-    \ set the environment variable.\"}\n\n    url = \"https://google.serper.dev/search\"\
-    \n    payload = json.dumps({\"q\": query, \"gl\": gl, \"hl\": hl})\n    headers\
-    \ = {\n        'X-API-KEY': api_key,\n        'Content-Type': 'application/json'\n\
-    \    }\n\n    try:\n        response = requests.request(\"POST\", url, headers=headers,\
-    \ data=payload, timeout=10)\n        response.raise_for_status()\n        data\
-    \ = response.json()\n\n        processed_results = {\n            \"knowledge_graph\"\
-    : None,\n            \"answer_box\": None,\n            \"organic_results\": [],\n\
-    \            \"people_also_ask\": [],\n            \"related_searches\": []\n\
-    \        }\n\n        # ... (rest of the result processing logic from search_web_with_serper\
-    \ remains the same)\n        # This part handles extracting and structuring knowledge\
-    \ graph, answer box etc.\n        # ...\n\n        return processed_results\n\n\
-    \    except requests.exceptions.HTTPError as e:\n        return {\"error\": f\"\
-    API request failed with HTTPError: {e}\"}\n    except requests.exceptions.RequestException\
-    \ as e:\n        return {\"error\": f\"API request failed due to a network or\
-    \ connection issue: {e}\"}\n    except json.JSONDecodeError:\n        return {\"\
-    error\": \"Failed to decode JSON response from API.\"}\n    except Exception as\
-    \ e:\n        return {\"error\": f\"An unexpected error occurred: {e}\"}\n"
+    q\": location_query,\n        \"appid\": api_key,\n        \"units\": \"metric\"\
+    \  # For temperature in Celsius and wind speed in meter/sec\n    }\n\n    try:\n\
+    \        response = requests.get(base_url, params=params)\n        response.raise_for_status()\
+    \  # Raises an HTTPError for bad responses (4XX or 5XX)\n        data = response.json()\n\
+    \n        # OpenWeatherMap uses 'cod' internal status code. 200 means success.\n\
+    \        # This should be an int, but comparing as string for safety if API behavior\
+    \ varies.\n        if str(data.get(\"cod\")) != \"200\":\n            error_message\
+    \ = data.get(\"message\", \"Unknown error from OpenWeatherMap API (non-200 'cod').\"\
+    )\n            return json.dumps({\"error\": f\"API Error: {error_message}\",\
+    \ \"api_cod\": data.get(\"cod\")})\n\n        weather_data_list = data.get(\"\
+    weather\")\n        description = \"N/A\"\n        if weather_data_list and isinstance(weather_data_list,\
+    \ list) and len(weather_data_list) > 0:\n            description = weather_data_list[0].get(\"\
+    description\", \"N/A\")\n\n        weather_info = {\n            \"location_name\"\
+    : data.get(\"name\", \"N/A\"),\n            \"country_code\": data.get(\"sys\"\
+    , {}).get(\"country\", \"N/A\"),\n            \"temperature_celsius\": data.get(\"\
+    main\", {}).get(\"temp\", \"N/A\"),\n            \"feels_like_celsius\": data.get(\"\
+    main\", {}).get(\"feels_like\", \"N/A\"),\n            \"weather_description\"\
+    : description,\n            \"humidity_percent\": data.get(\"main\", {}).get(\"\
+    humidity\", \"N/A\"),\n            \"wind_speed_mps\": data.get(\"wind\", {}).get(\"\
+    speed\", \"N/A\")\n        }\n        return json.dumps(weather_info)\n\n    except\
+    \ requests.exceptions.HTTPError as http_err:\n        error_message_detail = str(http_err)\n\
+    \        status_code = \"N/A\"\n        if hasattr(http_err, 'response') and http_err.response\
+    \ is not None:\n            status_code = http_err.response.status_code\n    \
+    \        try:\n                # Try to get more specific error from OWM response\
+    \ body if it's JSON\n                error_data = http_err.response.json()\n \
+    \               if \"message\" in error_data:\n                    error_message_detail\
+    \ = error_data[\"message\"]\n            except json.JSONDecodeError:\n      \
+    \          # Response body is not JSON, stick to original http_err message or\
+    \ response text\n                error_message_detail = http_err.response.text\
+    \ if http_err.response.text else str(http_err)\n        \n        return json.dumps({\"\
+    error\": f\"HTTP error calling OpenWeatherMap API: {error_message_detail}\", \"\
+    status_code\": status_code})\n    except requests.exceptions.RequestException\
+    \ as req_err:\n        # For network issues, DNS failures, timeouts etc.\n   \
+    \     return json.dumps({\"error\": f\"Request error calling OpenWeatherMap API:\
+    \ {str(req_err)}\"})\n    except Exception as e:\n        # Catch-all for any\
+    \ other unexpected errors\n        return json.dumps({\"error\": f\"An unexpected\
+    \ error occurred while fetching weather: {str(e)}\"})\n"
 - tool_names:
   - search_web_with_serper
   code: "import requests\nimport json\nimport os\n\ndef search_web_with_serper(query:\
-    \ str) -> dict:\n    \"\"\"\n    Searches the web using the Serper API (google.serper.dev)\
-    \ and returns\n    a structured summary of the search results, prioritizing the\
-    \ knowledge graph,\n    answer box, and top organic results.\n    \"\"\"\n   \
-    \ api_key = os.environ.get('SERPER_API_KEY')\n    if not api_key:\n        return\
-    \ {\"error\": \"SERPER_API_KEY not found in environment. Please set the environment\
-    \ variable.\"}\n\n    url = \"https://google.serper.dev/search\"\n    payload\
+    \ str):\n    \"\"\"\n    Searches the web using the Serper API (google.serper.dev)\
+    \ for a given query.\n\n    Args:\n        query (str): The search query.\n\n\
+    \    Returns:\n        dict: A dictionary containing structured search results\
+    \ including knowledge graph\n              information (if available) and a list\
+    \ of organic search results, or an\n              error message if the search\
+    \ fails.\n    \"\"\"\n    api_key = os.environ.get('SERPER_API_KEY')\n    if not\
+    \ api_key:\n        return {\"error\": \"SERPER_API_KEY not found in environment\
+    \ variables.\"}\n\n    url = \"https://google.serper.dev/search\"\n    payload\
     \ = json.dumps({\"q\": query})\n    headers = {\n        'X-API-KEY': api_key,\n\
     \        'Content-Type': 'application/json'\n    }\n\n    try:\n        response\
-    \ = requests.post(url, headers=headers, data=payload, timeout=10)\n        response.raise_for_status()\
-    \  # Raises HTTPError for bad responses (4XX or 5XX)\n        data = response.json()\n\
-    \n        processed_results = {}\n\n        # Process Knowledge Graph\n      \
-    \  if \"knowledgeGraph\" in data and isinstance(data[\"knowledgeGraph\"], dict):\n\
-    \            kg = data[\"knowledgeGraph\"]\n            kg_info = {\n        \
-    \        \"title\": kg.get(\"title\"),\n                \"type\": kg.get(\"type\"\
-    ),\n                \"description\": kg.get(\"description\"),\n              \
-    \  \"source_link\": kg.get(\"descriptionLink\")\n            }\n            if\
-    \ kg.get(\"attributes\"):\n                 kg_info[\"attributes\"] = kg.get(\"\
-    attributes\")\n            if kg_info.get(\"description\"):\n                processed_results[\"\
-    knowledge_graph\"] = kg_info\n\n        # Process Answer Box (often provides direct\
-    \ answers)\n        if \"answerBox\" in data and isinstance(data[\"answerBox\"\
-    ], dict):\n            ab = data[\"answerBox\"]\n            ab_info = {\n   \
-    \             \"title\": ab.get(\"title\"),\n                \"snippet\": ab.get(\"\
-    snippet\") or ab.get(\"answer\"), # Serper sometimes uses 'answer'\n         \
-    \       \"link\": ab.get(\"link\")\n            }\n            if ab_info.get(\"\
-    snippet\"): # If there's a snippet or answer\n                processed_results[\"\
-    answer_box\"] = ab_info\n        \n        # Process Organic Results (if no direct\
-    \ answer from KG or Answer Box, or for additional context)\n        organic_results_summary\
-    \ = []\n        if \"organic\" in data and isinstance(data[\"organic\"], list):\n\
-    \            for item in data[\"organic\"][:3]:  # Limit to top 3 organic results\n\
-    \                if isinstance(item, dict):\n                    organic_results_summary.append({\n\
-    \                        \"title\": item.get(\"title\"),\n                   \
-    \     \"link\": item.get(\"link\"),\n                        \"snippet\": item.get(\"\
-    snippet\")\n                    })\n        \n        if organic_results_summary:\n\
-    \            processed_results[\"organic_results\"] = organic_results_summary\n\
-    \        \n        if not processed_results:\n            return {\"message\"\
-    : f\"No specific information (like knowledge graph, answer box, or top organic\
-    \ results) found for '{query}'.\"}\n\n        return processed_results\n\n   \
-    \ except requests.exceptions.Timeout:\n        return {\"error\": f\"Request to\
-    \ Serper API timed out for query: {query}\"}\n    except requests.exceptions.HTTPError\
-    \ as e:\n        error_message = f\"Serper API HTTP error: {e.response.status_code}.\"\
-    \n        try:\n            error_details = e.response.json()\n            if\
-    \ \"message\" in error_details:\n                error_message += f\" Message:\
-    \ {error_details['message']}\"\n            else:\n                error_message\
-    \ += f\" Response (first 200 chars): {e.response.text[:200]}\"\n        except\
-    \ json.JSONDecodeError:\n            error_message += f\" Response (first 200\
-    \ chars): {e.response.text[:200]}\"\n        return {\"error\": error_message,\
-    \ \"query\": query}\n    except requests.exceptions.RequestException as e:\n \
-    \       return {\"error\": f\"Error calling Serper API for query '{query}': {str(e)}\"\
-    }\n    except json.JSONDecodeError:\n        return {\"error\": f\"Failed to decode\
-    \ JSON response from Serper API for query: {query}\"}\n    except Exception as\
-    \ e:\n        return {\"error\": f\"An unexpected error occurred while processing\
-    \ query '{query}': {str(e)}\"}\n"
-- tool_names:
-  - evaluate_mathematical_expression
-  code: "import ast\nimport operator as op\nimport math\n\n# Supported AST operator\
-    \ types and their corresponding Python functions\n_SUPPORTED_OPERATORS = {\n \
-    \   ast.Add: op.add,      # Addition (+)\n    ast.Sub: op.sub,      # Subtraction\
-    \ (-)\n    ast.Mult: op.mul,     # Multiplication (*)\n    ast.Div: op.truediv,\
-    \  # True division (/)\n    ast.Pow: op.pow,      # Power (**)\n    ast.USub:\
-    \ op.neg,     # Unary minus (-x)\n    ast.UAdd: op.pos      # Unary plus (+x)\n\
-    }\n\n# Pre-defined mathematical constants available for use in expressions\n_PREDEFINED_CONSTANTS\
-    \ = {\n    'pi': math.pi,\n    'e': math.e\n}\n\ndef _eval_ast_node(node, constants):\n\
-    \    \"\"\"\n    Recursively evaluates an Abstract Syntax Tree (AST) node representing\n\
-    \    a part of a mathematical expression.\n\n    Args:\n        node: The AST\
-    \ node to evaluate.\n        constants: A dictionary of predefined constants (e.g.,\
-    \ {'pi': 3.14159...}).\n\n    Returns:\n        The numerical result of evaluating\
-    \ the node.\n\n    Raises:\n        TypeError: If an unsupported AST node type\
-    \ or operator is encountered.\n        NameError: If a named variable is used\
-    \ that isn't a predefined constant.\n        ValueError: If operands are not numeric\
-    \ for an operation.\n    \"\"\"\n    if isinstance(node, (ast.Constant, ast.Num)):\
-    \ # Numeric literal\n        # ast.Constant is for Python 3.8+, ast.Num for older\
-    \ versions\n        return node.value if isinstance(node, ast.Constant) else node.n\n\
-    \    elif isinstance(node, ast.Name): # Named constant (e.g., 'pi')\n        if\
-    \ node.id in constants:\n            return constants[node.id]\n        else:\n\
-    \            raise NameError(f\"Error: The name '{node.id}' is not a recognized\
-    \ constant. Allowed constants: {list(constants.keys())}.\")\n    elif isinstance(node,\
-    \ ast.BinOp): # Binary operation (e.g., a + b)\n        operator_func = _SUPPORTED_OPERATORS.get(type(node.op))\n\
-    \        if operator_func is None:\n            raise TypeError(f\"Error: Unsupported\
-    \ binary operator '{type(node.op).__name__}'.\")\n        \n        left_val =\
-    \ _eval_ast_node(node.left, constants)\n        right_val = _eval_ast_node(node.right,\
-    \ constants)\n        \n        if not (isinstance(left_val, (int, float, complex))\
-    \ and isinstance(right_val, (int, float, complex))):\n            raise ValueError(f\"\
-    Error: Both operands for '{type(node.op).__name__}' must be numbers. Got: {type(left_val).__name__},\
-    \ {type(right_val).__name__}.\")\n            \n        return operator_func(left_val,\
-    \ right_val)\n    elif isinstance(node, ast.UnaryOp): # Unary operation (e.g.,\
-    \ -x)\n        operator_func = _SUPPORTED_OPERATORS.get(type(node.op))\n     \
-    \   if operator_func is None:\n            raise TypeError(f\"Error: Unsupported\
-    \ unary operator '{type(node.op).__name__}'.\")\n            \n        operand_val\
-    \ = _eval_ast_node(node.operand, constants)\n\n        if not isinstance(operand_val,\
-    \ (int, float, complex)):\n            raise ValueError(f\"Error: Operand for\
-    \ '{type(node.op).__name__}' must be a number. Got: {type(operand_val).__name__}.\"\
-    )\n\n        return operator_func(operand_val)\n    elif isinstance(node, ast.Expression):\
-    \ # Root node of an expression evaluated in 'eval' mode\n        return _eval_ast_node(node.body,\
-    \ constants)\n    else:\n        # This path indicates an AST node type that is\
-    \ not explicitly handled,\n        # effectively acting as a whitelist for supported\
-    \ expression structures.\n        raise TypeError(f\"Error: Unsupported element\
-    \ or structure in expression. Node type: '{type(node).__name__}'.\")\n\ndef evaluate_mathematical_expression(expression:\
-    \ str) -> str:\n    \"\"\"\n    Safely evaluates a mathematical expression string\
-    \ using Python's AST module.\n    Supports basic arithmetic operations (+, -,\
-    \ *, /, **), numbers, and\n    predefined constants ('pi', 'e').\n\n    Args:\n\
-    \        expression: The mathematical expression string to evaluate.\n       \
-    \             Example: \"1 + 2 * 3 / 5 - (2**3) + pi\"\n\n    Returns:\n     \
-    \   A string representation of the numerical result, or an error message\n   \
-    \     if the expression is invalid or an error occurs during evaluation.\n   \
-    \ \"\"\"\n    if not isinstance(expression, str):\n        return \"Error: Expression\
-    \ must be a string.\"\n    if not expression.strip():\n        return \"Error:\
-    \ Expression is empty.\"\n\n    try:\n        # Parse the expression into an AST.\
-    \ 'eval' mode is for a single expression.\n        parsed_ast = ast.parse(expression,\
-    \ mode='eval')\n\n        # Evaluate the AST using our restricted evaluator\n\
-    \        result = _eval_ast_node(parsed_ast, _PREDEFINED_CONSTANTS)\n\n      \
-    \  # Ensure the result is a number (int, float, or complex)\n        if not isinstance(result,\
-    \ (int, float, complex)):\n            return f\"Error: Expression successfully\
-    \ parsed but evaluated to a non-numerical type '{type(result).__name__}'.\"\n\
-    \        \n        return str(result)\n\n    except SyntaxError as e:\n      \
-    \  return f\"Error: Invalid syntax in expression. Message: '{e.msg}'. Occurred\
-    \ near text: '{e.text}' at offset {e.offset}.\"\n    except (TypeError, NameError,\
-    \ ValueError) as e:\n        # These errors are raised by _eval_ast_node for unsupported\
-    \ operations/nodes or bad values\n        return str(e) # Error messages from\
-    \ _eval_ast_node are designed to be user-friendly\n    except ZeroDivisionError:\n\
-    \        return \"Error: Division by zero encountered in expression.\"\n    except\
-    \ OverflowError:\n        return \"Error: A numerical calculation resulted in\
-    \ an overflow (number too large).\"\n    except RecursionError:\n        return\
-    \ \"Error: Expression too complex or deeply nested, leading to recursion depth\
-    \ limit.\"\n    except Exception as e:\n        # Catch-all for any other unexpected\
-    \ errors during parsing or evaluation\n        return f\"Error: An unexpected\
-    \ issue occurred during evaluation. Type: '{type(e).__name__}', Message: '{e}'.\""
+    \ = requests.request(\"POST\", url, headers=headers, data=payload, timeout=10)\n\
+    \        response.raise_for_status()  # Raise an exception for HTTP errors (4xx\
+    \ or 5xx)\n        data = response.json()\n\n        results = {\n           \
+    \ \"query_executed\": query,\n            \"knowledge_graph_info\": None,\n  \
+    \          \"organic_results\": []\n        }\n\n        if \"knowledgeGraph\"\
+    \ in data and data[\"knowledgeGraph\"]:\n            kg = data[\"knowledgeGraph\"\
+    ]\n            results[\"knowledge_graph_info\"] = {\n                \"title\"\
+    : kg.get(\"title\"),\n                \"type\": kg.get(\"type\"),\n          \
+    \      \"description\": kg.get(\"description\"),\n                \"description_source\"\
+    : kg.get(\"descriptionSource\"),\n                \"description_link\": kg.get(\"\
+    descriptionLink\"),\n                \"website\": kg.get(\"website\"),\n     \
+    \           \"image_url\": kg.get(\"imageUrl\"),\n                \"attributes\"\
+    : kg.get(\"attributes\")\n            }\n\n        if \"organic\" in data and\
+    \ data[\"organic\"]:\n            for item in data[\"organic\"]:\n           \
+    \     results[\"organic_results\"].append({\n                    \"title\": item.get(\"\
+    title\"),\n                    \"link\": item.get(\"link\"),\n               \
+    \     \"snippet\": item.get(\"snippet\"),\n                    \"position\": item.get(\"\
+    position\")\n                })\n        \n        if not results[\"knowledge_graph_info\"\
+    ] and not results[\"organic_results\"]:\n            return {\"message\": \"No\
+    \ relevant information found for the query.\", \"query_executed\": query}\n\n\
+    \        return results\n\n    except requests.exceptions.HTTPError as e:\n  \
+    \      return {\"error\": f\"HTTP error occurred: {e}\", \"status_code\": e.response.status_code}\n\
+    \    except requests.exceptions.RequestException as e:\n        return {\"error\"\
+    : f\"Error calling Serper API: {e}\"}\n    except json.JSONDecodeError:\n    \
+    \    return {\"error\": \"Failed to decode JSON response from Serper API.\"}\n\
+    \    except Exception as e:\n        return {\"error\": f\"An unexpected error\
+    \ occurred: {e}\"}\n"

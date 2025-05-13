@@ -6,8 +6,32 @@ import time # For potential keep-alive pings if needed, though not critical for 
 import inspect # <-- Add inspect module
 import yaml # Add yaml import
 import tool_manager # Import the tool_manager module
+import ast # For parsing Python code to get docstrings
 
-app = Flask(__name__)
+# Explicitly set static folder
+app = Flask(__name__, static_folder='static')
+
+def get_first_docstring_line_from_code(code_str: str) -> str | None:
+    """Helper to extract the first line of a docstring from a code string."""
+    if not code_str:
+        return None
+    try:
+        tree = ast.parse(code_str)
+        # Try to find a function or class definition first
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                docstring = ast.get_docstring(node)
+                if docstring:
+                    first_line = docstring.strip().split('\n')[0].strip()
+                    return first_line if first_line else None # Ensure it's not empty
+        # If no function/class docstring, try module level
+        module_docstring = ast.get_docstring(tree)
+        if module_docstring:
+            first_line = module_docstring.strip().split('\n')[0].strip()
+            return first_line if first_line else None
+    except SyntaxError:
+        return None # Code couldn't be parsed
+    return None
 
 # Initial check for Google API Key at app startup for early warning.
 # The core logic in agent_core.handle_web_request will handle per-request refresh and configuration.
@@ -83,25 +107,34 @@ def get_system_info():
     dynamic_tools_from_yaml_info = []
     if os.path.exists(tool_manager.persistent_tool_registry_path):
         try:
-            with open(tool_manager.persistent_tool_registry_path, 'r') as f:
+            with open(tool_manager.persistent_tool_registry_path, 'r', encoding='utf-8') as f:
                 persisted_tools_yaml = yaml.safe_load(f)
             
             if isinstance(persisted_tools_yaml, list):
-                for tool_entry in persisted_tools_yaml:
+                for tool_entry in persisted_tools_yaml: # Each entry is a code block with one or more names
                     if isinstance(tool_entry, dict) and \
-                       isinstance(tool_entry.get('tool_names'), list):
-                        # Use the first name as primary, or list all if desired
-                        primary_name = tool_entry['tool_names'][0] if tool_entry['tool_names'] else "Unnamed_Tool_Block"
-                        # You could also join all names: name = ", ".join(tool_entry['tool_names'])
-                        description = tool_entry.get('description', f"Registered in {os.path.basename(tool_manager.persistent_tool_registry_path)}")
-                        if len(tool_entry['tool_names']) > 1:
-                            description += f" (Includes: {', '.join(tool_entry['tool_names'])})"
+                       isinstance(tool_entry.get('tool_names'), list) and tool_entry['tool_names']:
                         
-                        # For the UI, we list each unique tool name that could be called.
-                        for tool_name_in_yaml in tool_entry['tool_names']:
+                        code_content = tool_entry.get('code')
+                        base_description_for_block = "User-generated tool" # Default for this code block
+                        if code_content:
+                            first_line_doc = get_first_docstring_line_from_code(code_content)
+                            if first_line_doc:
+                                base_description_for_block = first_line_doc
+                        
+                        all_names_for_this_block = tool_entry['tool_names']
+                        
+                        for current_tool_name in all_names_for_this_block:
+                            final_description = base_description_for_block
+                            
+                            if len(all_names_for_this_block) > 1:
+                                other_aliases = [name for name in all_names_for_this_block if name != current_tool_name]
+                                if other_aliases:
+                                    final_description += f" (Also known as: {', '.join(other_aliases)})"
+                            
                             dynamic_tools_from_yaml_info.append({
-                                "name": tool_name_in_yaml, 
-                                "description": description 
+                                "name": current_tool_name, 
+                                "description": final_description 
                             })
             else:
                 # Handle case where YAML is not a list (e.g., empty or malformed)
@@ -118,7 +151,6 @@ def get_system_info():
     api_key_details_info = []
     if hasattr(agent_core, 'refresh_api_keys_and_configure_gemini'):
         try:
-            # We only need the details, not necessarily to reconfigure Gemini here for this info endpoint
             api_details, _ = agent_core.refresh_api_keys_and_configure_gemini()
             if isinstance(api_details, dict):
                 for key_name, details in api_details.items():
@@ -129,8 +161,6 @@ def get_system_info():
                     })
         except Exception as e:
             print(f"Error fetching API key details for /get_system_info: {e}")
-            # Optionally, communicate this error in the response
-            # api_key_details_info.append({"name": "Error", "description": "Could not load API key details"})
 
     return jsonify({
         'predefined_tools': predefined_tools_info,
@@ -239,6 +269,31 @@ def get_tool_details(tool_name):
     else:
         return jsonify({"error": "Tool not found"}), 404
 
+# Debug route to check if static files are accessible
+@app.route('/check_static')
+def check_static():
+    static_path = app.static_folder
+    assets_path = os.path.join(static_path, 'assets')
+    
+    files_info = []
+    if os.path.exists(assets_path):
+        for filename in os.listdir(assets_path):
+            file_path = os.path.join(assets_path, filename)
+            file_size = os.path.getsize(file_path) if os.path.isfile(file_path) else 'N/A'
+            files_info.append({
+                'name': filename,
+                'path': f'/static/assets/{filename}',
+                'size': file_size,
+                'exists': os.path.isfile(file_path)
+            })
+    
+    return jsonify({
+        'static_folder': static_path,
+        'assets_folder': assets_path,
+        'assets_folder_exists': os.path.exists(assets_path),
+        'files': files_info
+    })
+
 if __name__ == '__main__':
     # Create a templates folder if it doesn't exist
     if not os.path.exists('templates'):
@@ -248,5 +303,19 @@ if __name__ == '__main__':
         with open('templates/index.html', 'w') as f:
             f.write('<h1>Please use the main index.html for SSE functionality</h1>')
         print("Created dummy templates/index.html - Note: SSE requires the full JS client.")
+
+    # Print debug information about static files
+    static_path = app.static_folder
+    assets_path = os.path.join(static_path, 'assets')
+    print(f"Flask static folder: {static_path}")
+    print(f"Assets folder: {assets_path}")
+    print(f"Assets folder exists: {os.path.exists(assets_path)}")
+    
+    if os.path.exists(assets_path):
+        print("Files in assets folder:")
+        for filename in os.listdir(assets_path):
+            file_path = os.path.join(assets_path, filename)
+            file_size = os.path.getsize(file_path) if os.path.isfile(file_path) else 'N/A'
+            print(f"  - {filename} ({file_size} bytes)")
 
     app.run(debug=True, threaded=True) # threaded=True can be important for SSE with dev server 

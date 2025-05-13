@@ -2,6 +2,7 @@ import os
 import yaml
 import traceback # For more detailed error printing during exec
 import json
+import random
 
 # Path to the persistent tool registry file
 persistent_tool_registry_path = "dynamic_tool_registry.yaml"
@@ -205,7 +206,13 @@ def refactor_tool_registry():
     Analyzes the existing dynamic tools for generalization opportunities using an LLM.
     If a valid generalization is proposed, it saves the new tool and removes the old ones.
     This function interacts with the persistent storage (YAML file).
+    Only runs 20% of the time to avoid over-aggressive refactoring.
     """
+    # Add a random check to only refactor 20% of the time
+    if random.random() > 0.2:  # 80% chance to skip refactoring
+        print("\n--- (Tool Manager) Skipping refactoring attempt (80% probability) ---")
+        return
+        
     print("\n--- (Tool Manager) Attempting to refactor dynamic tool registry... ---")
     if not os.path.exists(persistent_tool_registry_path):
         print("Info (Tool Manager): Registry file not found, nothing to refactor.")
