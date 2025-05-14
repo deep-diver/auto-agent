@@ -96,14 +96,144 @@
             min-width: 300px;
             height: 100%;
             background: linear-gradient(to bottom, var(--side-panel-bg), #f5f0e8); /* Subtle gradient background */
-            padding: 28px; /* More padding */
-            overflow-y: auto;
+            padding: 0; /* Remove padding - will be applied to tab content */
             border-right: 1px solid var(--border-color);
             display: flex;
             flex-direction: column;
             box-shadow: inset -5px 0 15px -5px rgba(93, 64, 55, 0.05); /* Inner shadow for depth */
             position: relative;
             z-index: 1;
+            overflow: hidden; /* Hide overflow */
+            transition: width 0.3s ease, min-width 0.3s ease, opacity 0.3s ease; /* Added transition */
+        }
+
+        /* New Pane Styling */
+        #conversation-pane {
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            /* Default to full height, will be adjusted by JS for split view */
+            flex-grow: 1;
+        }
+        #conversation-pane #conversation-panel-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0; /* Prevent header from shrinking */
+        }
+        #conversation-pane #conversations-list {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 10px 0; /* Keep existing padding */
+        }
+
+        #side-panel-resizer {
+            height: 8px;
+            background-color: var(--border-color-light);
+            border-top: 1px solid var(--border-color);
+            border-bottom: 1px solid var(--border-color);
+            cursor: ns-resize;
+            flex-shrink: 0; /* Prevent resizer from shrinking */
+            display: none; /* Initially hidden */
+            transition: background-color 0.2s ease;
+        }
+        #side-panel-resizer:hover {
+            background-color: var(--primary-accent-darker);
+        }
+
+        #tools-pane {
+            display: none; /* Initially hidden */
+            flex-direction: column;
+            overflow-y: auto;
+            flex-grow: 1; /* Takes remaining space in split view */
+            padding: 28px; /* Keep existing padding from old #tools-tab */
+        }
+
+        /* Tab System */
+        .side-panel-tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border-color);
+            background-color: rgba(255, 252, 249, 0.8);
+        }
+
+        .tab-button {
+            flex: 1;
+            padding: 16px 8px;
+            text-align: center;
+            background: transparent;
+            border: none;
+            border-bottom: 3px solid transparent;
+            font-family: var(--font-family-sans);
+            font-size: 0.9em;
+            font-weight: 600;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .tab-button:hover {
+            background-color: rgba(255, 255, 255, 0.4);
+            color: var(--text-primary);
+        }
+
+        .tab-button.active {
+            color: var(--primary-accent);
+            border-bottom-color: var(--primary-accent);
+        }
+
+        .tab-content {
+            display: none;
+            flex-direction: column;
+            flex-grow: 1;
+            overflow: hidden;
+            height: 100%;
+        }
+
+        .tab-content.active {
+            display: flex;
+        }
+
+        /* Toggle button for side panel */
+        #side-panel-toggle {
+            position: absolute;
+            top: 20px;
+            left: 325px;
+            background-color: var(--surface-color);
+            border: 1px solid var(--border-color);
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 10;
+            box-shadow: var(--box-shadow-soft);
+            transition: left 0.3s ease, background-color 0.2s ease, color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease; /* Updated transition */
+        }
+
+        #side-panel-toggle:hover {
+            background-color: var(--primary-accent);
+            color: white;
+            transform: translateX(2px);
+        }
+
+        #side-panel-toggle svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        #side-panel.collapsed {
+            width: 0;
+            min-width: 0;
+            opacity: 0;
+        }
+
+        /* New rule for the moving toggle button when panel is collapsed */
+        #side-panel.collapsed + #side-panel-toggle {
+            left: 10px; /* Adjust if needed for aesthetics */
         }
 
         /* Decorative element for side panel */
@@ -349,6 +479,36 @@
         }
         #side-panel li em { color: var(--text-tertiary); }
 
+        /* Dynamic Tool Delete Button */
+        .dynamic-tool-delete {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background-color: rgba(229, 115, 115, 0.1);
+            color: var(--primary-accent);
+            border-radius: 50%;
+            width: 22px;
+            height: 22px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            opacity: 0;
+            transition: all 0.2s ease;
+            border: none;
+            font-size: 14px;
+            z-index: 2;
+        }
+
+        li[data-tool-type="dynamic"]:hover .dynamic-tool-delete {
+            opacity: 1;
+        }
+
+        .dynamic-tool-delete:hover {
+            background-color: var(--primary-accent);
+            color: white;
+            transform: scale(1.1);
+        }
 
         /* --- Chat Container Styling --- */
         #chat-container {
@@ -373,6 +533,8 @@
             position: relative;
             z-index: 10;
             backdrop-filter: blur(5px);
+            display: flex; /* Added */
+            align-items: center; /* Added */
         }
         #chat-title-bar h2 {
             margin: 0;
@@ -387,6 +549,31 @@
             content: '💬';
             margin-right: 8px;
             font-size: 1.1em;
+        }
+
+        /* New Chat Panel Side Toggle Button */
+        #chat-panel-side-toggle {
+            background: none;
+            border: none;
+            color: var(--icon-color);
+            cursor: pointer;
+            padding: 4px; /* Small padding */
+            margin-right: 12px; /* Space before the title */
+            border-radius: var(--border-radius-sm);
+            transition: background-color 0.2s ease, color 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #chat-panel-side-toggle:hover {
+            background-color: var(--border-color-light);
+            color: var(--primary-accent);
+        }
+
+        #chat-panel-side-toggle svg {
+            width: 20px; /* Slightly larger for title bar */
+            height: 20px;
         }
 
         #chatbox {
@@ -423,6 +610,132 @@
             background: linear-gradient(to top, rgba(255,252,249,0.2), transparent);
             pointer-events: none;
             z-index: 1;
+        }
+
+        /* Empty chat state */
+        .empty-chat-message {
+            text-align: center;
+            color: var(--text-tertiary);
+            font-style: italic;
+            margin: auto;
+            padding: 40px;
+        }
+
+        /* Model Selector Button */
+        #model-selector-button {
+            position: fixed;
+            bottom: 20px;
+            left: 20px; /* Changed from right to left */
+            background-color: var(--primary-accent);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: var(--box-shadow-strong);
+            transition: all 0.2s ease;
+            z-index: 50;
+            opacity: 0.4; /* Make it 10% more transparent (was 0.5) */
+        }
+
+        #model-selector-button:hover {
+            transform: translateY(-2px) scale(1.05);
+            background-color: var(--primary-accent-darker);
+            opacity: 1; /* Make fully opaque on hover */
+        }
+
+        #model-selector-button img {
+            width: 24px;
+            height: 24px;
+            object-fit: contain;
+            filter: brightness(0) invert(1); /* Make the icon white to match the button's text color */
+        }
+
+        /* Model Selector Modal */
+        #model-selector-modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(93, 64, 55, 0.3);
+            backdrop-filter: blur(3px);
+            transition: all 0.3s ease;
+        }
+
+        #model-selector-modal .modal-content {
+            background-color: var(--surface-bg);
+            margin: 15% auto;
+            padding: 32px;
+            border: none;
+            width: 400px;
+            max-width: 80%;
+            border-radius: var(--border-radius);
+            box-shadow: var(--box-shadow-strong), 0 15px 40px rgba(93, 64, 55, 0.15);
+            position: relative;
+            transform: translateY(20px);
+            opacity: 0;
+            transition: all 0.3s ease;
+        }
+
+        #model-selector-modal.show .modal-content {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        .model-option {
+            display: block;
+            width: 100%;
+            padding: 16px;
+            margin-bottom: 12px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius-sm);
+            background-color: var(--surface-color);
+            text-align: left;
+            font-family: var(--font-family-sans);
+            font-size: 1em;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .model-option:hover {
+            border-color: var(--primary-accent);
+            background-color: rgba(229, 115, 115, 0.05);
+            transform: translateY(-2px);
+        }
+
+        .model-option.selected {
+            border-color: var(--primary-accent);
+            background-color: rgba(229, 115, 115, 0.1);
+            position: relative;
+        }
+
+        .model-option.selected::after {
+            content: '✓';
+            position: absolute;
+            top: 50%;
+            right: 16px;
+            transform: translateY(-50%);
+            color: var(--primary-accent);
+            font-weight: bold;
+        }
+
+        .model-name {
+            font-weight: 600;
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        .model-description {
+            font-size: 0.85em;
+            color: var(--text-tertiary);
         }
 
         /* Message Group & Avatar Styling */
@@ -557,7 +870,7 @@
             border-top: 1px solid var(--border-color);
             background-color: rgba(249, 245, 239, 0.97); /* Slightly transparent */
             gap: 12px; 
-            align-items: center;
+            align-items: flex-end; /* Changed from center to align-items with bottom of textarea */
             box-shadow: 0 -2px 5px rgba(0,0,0,0.02); /* Subtle top shadow */
             position: relative;
             z-index: 10;
@@ -590,6 +903,11 @@
             transition: all 0.3s ease;
             background-color: var(--surface-color);
             box-shadow: var(--box-shadow-inset);
+            resize: none; /* Prevent manual resizing */
+            overflow: hidden; /* Hide scrollbar */
+            min-height: 24px; /* Starting height for single line */
+            max-height: 200px; /* Maximum height (about 8-10 lines) */
+            line-height: 1.5; /* Set line height for consistent calculation */
         }
         #userInput:focus {
             outline: none; 
@@ -707,13 +1025,63 @@
             background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 100 100'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.4' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100' height='100' filter='url(%23noise)' opacity='0.015'/%3E%3C/svg%3E");
         }
         
+        /* Fix for code overflow in modal */
+        #modal-tool-code-container {
+            max-width: 100%;
+            max-height: 60vh; /* Limit to 60% of viewport height */
+            overflow: auto; /* Add scrollbars when content overflows */
+            border: 1px solid var(--border-color-light);
+            border-radius: var(--border-radius-sm);
+            background-color: rgba(0, 0, 0, 0.02);
+            margin-top: 12px;
+        }
+
+        #modal-tool-code-container pre {
+            margin: 0;
+            padding: 16px;
+            overflow-x: auto; /* Horizontal scroll for long lines */
+            white-space: pre;
+            word-wrap: normal; /* Prevent word wrapping for code */
+        }
+
+        #modal-tool-code-container code {
+            font-size: 0.9em;
+            line-height: 1.5;
+        }
+        
         /* Animation for modal */
         .modal.show .modal-content {
             transform: translateY(0);
             opacity: 1;
         }
         
+        /* Modal close button styling */
+        .modal-close-button {
+            position: absolute;
+            top: 15px;
+            right: 20px;
+            color: var(--text-tertiary);
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: color 0.2s ease;
+            line-height: 1;
+            z-index: 2;
+        }
+        
+        .modal-close-button:hover {
+            color: var(--primary-accent);
+            text-decoration: none;
+        }
+        
         /* Tool Tags Styling */
+        .tool-tags-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 12px;
+        }
+        
         .tool-tag {
             background-color: var(--tool-tag-color); /* Changed to new blue variable */
             color: var(--text-on-primary-bg);
@@ -747,44 +1115,396 @@
         .tool-tag:hover::after {
             transform: translateX(100%);
         }
+
+        /* Log Details and Toggle Button Styling */
+        .log-toggle-button {
+            margin-top: 12px;
+            padding: 6px 10px;
+            background-color: var(--agent-message-bg);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius-sm);
+            font-size: 0.75em;
+            color: var(--text-secondary);
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            transition: all 0.3s ease, transform 0.2s ease;
+        }
+        
+        .log-toggle-button:hover {
+            background-color: var(--border-color-light);
+            color: var(--primary-accent);
+            transform: translateY(-2px);
+        }
+        
+        .log-toggle-button:active {
+            transform: translateY(0);
+        }
+        
+        .log-toggle-button svg {
+            width: 14px;
+            height: 14px;
+        }
+        
+        .log-details {
+            display: block; /* Changed from none to allow transitions */
+            max-height: 0;
+            overflow: hidden;
+            margin-top: 8px;
+            padding: 0;
+            border: 1px solid var(--border-color-light);
+            border-radius: var(--border-radius-sm);
+            background-color: rgba(255, 255, 255, 0.5);
+            opacity: 0;
+            transform: translateY(-10px);
+            transition: max-height 0.4s ease-in-out, 
+                        opacity 0.3s ease-in-out, 
+                        transform 0.3s ease-in-out,
+                        padding 0.2s ease-in-out;
+            pointer-events: none; /* Prevent interaction when hidden */
+        }
+        
+        .log-details.active {
+            max-height: 300px;
+            overflow-y: auto;
+            padding: 12px;
+            opacity: 1;
+            transform: translateY(0);
+            pointer-events: auto; /* Allow interaction when visible */
+        }
+        
+        .log-entry {
+            margin-bottom: 8px;
+            padding-bottom: 8px;
+            border-bottom: 1px dashed var(--border-color-light);
+            font-size: 0.85em;
+        }
+        
+        .log-entry:last-child {
+            margin-bottom: 0;
+            padding-bottom: 0;
+            border-bottom: none;
+        }
+
+        /* --- Conversation History Panel --- */
+        #conversations-list {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 10px 0;
+        }
+
+        #new-chat-button {
+            background-color: var(--primary-accent);
+            color: white;
+            border: none;
+            border-radius: var(--border-radius-sm);
+            padding: 6px 12px;
+            font-size: 0.8em;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        #new-chat-button:hover {
+            background-color: var(--primary-accent-darker);
+            transform: translateY(-1px);
+        }
+
+        #new-chat-button svg {
+            width: 14px;
+            height: 14px;
+        }
+
+        .conversation-item {
+            padding: 12px 20px;
+            cursor: pointer;
+            border-left: 3px solid transparent;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .conversation-item:hover {
+            background-color: rgba(255, 255, 255, 0.5);
+        }
+
+        .conversation-item.active {
+            background-color: rgba(255, 255, 255, 0.7);
+            border-left-color: var(--primary-accent);
+        }
+
+        .conversation-title {
+            font-size: 0.9em;
+            color: var(--text-primary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 180px;
+        }
+
+        .conversation-actions {
+            display: flex;
+            gap: 5px;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+
+        .conversation-item:hover .conversation-actions {
+            opacity: 1;
+        }
+
+        .conversation-action-btn {
+            background: none;
+            border: none;
+            padding: 3px;
+            color: var(--text-tertiary);
+            cursor: pointer;
+            border-radius: 3px;
+            transition: all 0.2s ease;
+        }
+
+        .conversation-action-btn:hover {
+            color: var(--primary-accent);
+            background-color: rgba(255, 255, 255, 0.5);
+        }
+
+        .conversation-action-btn svg {
+            width: 14px;
+            height: 14px;
+        }
+
+        #conversation-panel-toggle {
+            position: absolute;
+            top: 20px;
+            left: 285px;
+            background-color: var(--surface-color);
+            border: 1px solid var(--border-color);
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 10;
+            box-shadow: var(--box-shadow-soft);
+            transition: all 0.2s ease;
+        }
+
+        #conversation-panel-toggle:hover {
+            background-color: var(--primary-accent);
+            color: white;
+            transform: translateX(2px);
+        }
+
+        #conversation-panel-toggle svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        #conversation-panel.collapsed {
+            width: 0;
+            min-width: 0;
+            opacity: 0;
+        }
+
+        /* Rename dialog */
+        .rename-dialog {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            visibility: hidden;
+            opacity: 0;
+            transition: all 0.3s ease;
+        }
+
+        .rename-dialog.active {
+            visibility: visible;
+            opacity: 1;
+        }
+
+        .rename-dialog-content {
+            background-color: var(--surface-color);
+            padding: 20px;
+            border-radius: var(--border-radius);
+            width: 300px;
+            box-shadow: var(--box-shadow-strong);
+        }
+
+        .rename-dialog h3 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            font-size: 1.1em;
+            color: var(--text-primary);
+        }
+
+        .rename-input {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius-sm);
+            margin-bottom: 15px;
+            font-family: var(--font-family-sans);
+        }
+
+        .rename-dialog-buttons {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        .rename-dialog-btn {
+            padding: 6px 12px;
+            border-radius: var(--border-radius-sm);
+            font-size: 0.9em;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .rename-cancel-btn {
+            background: none;
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+        }
+
+        .rename-save-btn {
+            background-color: var(--primary-accent);
+            border: none;
+            color: white;
+        }
+
+        .rename-cancel-btn:hover {
+            background-color: var(--border-color-light);
+        }
+
+        .rename-save-btn:hover {
+            background-color: var(--primary-accent-darker);
+        }
+
+        /* Thinking Animation for Loading Indicator */
+        .loading-indicator-content {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            opacity: 0.75;
+            font-style: italic;
+            animation: pulse 1s infinite alternate;
+        }
+
+        .thinking-dots {
+            display: inline-block;
+            position: relative;
+            width: 24px;
+            text-align: left;
+            line-height: 1;
+            height: 20px; /* Match the height of the text */
+        }
+
+        .thinking-dots::after {
+            content: "...";
+            position: absolute;
+            left: 0;
+            top: 0; /* Align to top */
+            animation: thinkingDots 1.5s steps(4, end) infinite;
+            white-space: nowrap;
+            overflow: hidden;
+            width: 0;
+            line-height: 1.1; /* Better align with text */
+        }
+
+        @keyframes thinkingDots {
+            to {
+                width: 24px;
+            }
+        }
+
+        @keyframes pulse {
+            0% {
+                opacity: 0.5;
+            }
+            100% {
+                opacity: 1;
+            }
+        }
     </style>
 </head>
 <body>
     <div id="main-container">
+        <!-- Combined Side Panel with Tabs -->
         <div id="side-panel">
-            <div class="model-selector-container">
-                <label for="model-selector">Select Model:</label>
-                <select id="model-selector" name="model-selector">
-                    <!-- Options will be populated by JavaScript -->
-                </select>
+            <div class="side-panel-tabs">
+                <button id="conversation-tab-btn" class="tab-button active">Conversations</button>
+                <button id="tools-tab-btn" class="tab-button">Tools</button>
             </div>
-            <!-- <h2>System Dashboard</h2> Removed -->
+            
+            <!-- New Structure for resizable panes -->
+            <div id="conversation-pane">
+                <div id="conversation-panel-header">
+                    <h3>Conversations</h3>
+                    <button id="new-chat-button">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 5v14M5 12h14"></path>
+                        </svg>
+                        New Chat
+                    </button>
+                </div>
+                <div id="conversations-list">
+                    <!-- Conversations will be loaded here -->
+                </div>
+            </div>
 
-            <div class="collapsible-section" id="predefined-tools-section">
-                <h3 id="predefined-tools-heading" class="collapsible-trigger" aria-expanded="true" aria-controls="predefined-tools-list">Predefined Tools</h3>
-                <ul id="predefined-tools-list" class="tool-list"></ul>
-            </div>
+            <div id="side-panel-resizer"></div>
 
-            <div class="collapsible-section" id="dynamic-tools-section">
-                <h3 id="dynamic-tools-heading" class="collapsible-trigger" aria-expanded="true" aria-controls="dynamic-tools-list">Dynamic Tools</h3>
-                <ul id="dynamic-tools-list" class="tool-list"></ul>
-            </div>
+            <div id="tools-pane">
+                <div class="collapsible-section" id="predefined-tools-section">
+                    <h3 id="predefined-tools-heading" class="collapsible-trigger" aria-expanded="true" aria-controls="predefined-tools-list">Predefined Tools</h3>
+                    <ul id="predefined-tools-list" class="tool-list"></ul>
+                </div>
 
-            <div class="collapsible-section" id="api-keys-section">
-                <h3 id="api-keys-heading" class="collapsible-trigger" aria-expanded="true" aria-controls="api-keys-list">Available API Keys</h3>
-                <ul id="api-keys-list"></ul>
+                <div class="collapsible-section" id="dynamic-tools-section">
+                    <h3 id="dynamic-tools-heading" class="collapsible-trigger" aria-expanded="true" aria-controls="dynamic-tools-list">Dynamic Tools</h3>
+                    <ul id="dynamic-tools-list" class="tool-list"></ul>
+                </div>
+
+                <div class="collapsible-section" id="api-keys-section">
+                    <h3 id="api-keys-heading" class="collapsible-trigger" aria-expanded="true" aria-controls="api-keys-list">Available API Keys</h3>
+                    <ul id="api-keys-list"></ul>
+                </div>
             </div>
+        </div>
+
+        <div id="side-panel-toggle">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="15 18 9 12 15 6"></polyline>
+            </svg>
         </div>
 
         <div id="chat-container">
             <div id="chat-title-bar">
+                <button id="chat-panel-side-toggle" title="Toggle Side Panel">
+                    <!-- Icon will be set by JavaScript based on panel state -->
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="15 18 9 12 15 6"></polyline> <!-- Default: Chevron Left (implies panel is open) -->
+                    </svg>
+                </button>
                 <h2>Conversation</h2>
             </div>
             <div id="chatbox">
                 <!-- Initial agent message will be prepended here by JS -->
             </div>
             <div id="input-area">
-                <input type="text" id="userInput" placeholder="Ask me anything..." onkeypress="handleKeyPress(event)">
+                <textarea id="userInput" placeholder="Ask me anything..." rows="1"></textarea>
                 <button id="sendButton" onclick="sendMessage()">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" /></svg>
                     <span>Send</span>
@@ -806,19 +1526,143 @@
         </div>
     </div>
 
+    <!-- Rename Dialog -->
+    <div id="rename-dialog" class="rename-dialog">
+        <div class="rename-dialog-content">
+            <h3>Rename Conversation</h3>
+            <input type="text" id="rename-input" class="rename-input" placeholder="Enter new name">
+            <div class="rename-dialog-buttons">
+                <button id="rename-cancel" class="rename-dialog-btn rename-cancel-btn">Cancel</button>
+                <button id="rename-save" class="rename-dialog-btn rename-save-btn">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Model Selector Button -->
+    <button id="model-selector-button" title="Select AI Model">
+        <img src="/static/assets/setup.png" alt="Model Settings" style="width: 24px; height: 24px; object-fit: contain;">
+    </button>
+
+    <!-- Model Selector Modal -->
+    <div id="model-selector-modal" class="modal">
+        <div class="modal-content">
+            <span class="modal-close-button" onclick="closeModelModal()">&times;</span>
+            <h2>Select AI Model</h2>
+            <p>Choose the AI model that will respond to your questions.</p>
+            <div id="model-options-container">
+                <!-- Model options will be dynamically added here -->
+            </div>
+        </div>
+    </div>
+
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             hljs.configure({languages: [], ignoreUnescapedHTML: true });
             updateSidePanelInfo();
             initializeModelSelector();
             initializeCollapsibleSections(); // Initialize collapsible sections
-            appendInitialAgentMessage("Hello! I am your advanced AI assistant. How can I help you today?");
+            initializeTabSwitching(); // Initialize tab switching
+            initializeConversationPanel(); // Initialize conversation panel
+            initializeSidePanelResizer(); // Initialize the new resizer logic
+            loadConversations(); // Load conversation history
+            
+            // Set up auto-resizing textarea
+            const textarea = document.getElementById('userInput');
+            
+            // Initial auto-resize
+            autoResizeTextarea(textarea);
+            
+            // Add event listeners for auto-resize
+            textarea.addEventListener('input', function() {
+                autoResizeTextarea(this);
+            });
+            
+            // Handle key events (Enter to send, Shift+Enter for new line)
+            textarea.addEventListener('keydown', function(event) {
+                if (event.key === 'Enter' && !event.shiftKey && !this.disabled) {
+                    event.preventDefault(); // Prevent default to avoid new line
+                    sendMessage();
+                }
+            });
+
+            // Add click event for model selector button
+            document.getElementById('model-selector-button').addEventListener('click', openModelModal);
         });
+
+        // Function to auto-resize textarea based on content
+        function autoResizeTextarea(textarea) {
+            // Reset height to get correct scrollHeight measurement
+            textarea.style.height = 'auto';
+            
+            // Set minimum height
+            const minHeight = 24; // Single line height
+            
+            // Set to scrollHeight but constrain between min and max height
+            const newHeight = Math.max(minHeight, Math.min(textarea.scrollHeight, 200));
+            textarea.style.height = newHeight + 'px';
+        }
+
+        // Tab Switching Functionality
+        function initializeTabSwitching() {
+            const conversationTabBtn = document.getElementById('conversation-tab-btn');
+            const toolsTabBtn = document.getElementById('tools-tab-btn');
+            
+            const conversationPane = document.getElementById('conversation-pane');
+            const resizer = document.getElementById('side-panel-resizer');
+            const toolsPane = document.getElementById('tools-pane');
+            
+            // Set active tab from localStorage or default to conversations
+            const activeTab = localStorage.getItem('activeTab') || 'conversation';
+            activateTab(activeTab); // Call activateTab directly
+            
+            conversationTabBtn.addEventListener('click', () => {
+                activateTab('conversation');
+            });
+            
+            toolsTabBtn.addEventListener('click', () => {
+                activateTab('tools');
+            });
+            
+            function activateTab(tabName) {
+                // Save active tab to localStorage
+                localStorage.setItem('activeTab', tabName);
+                
+                // Reset all tab button states
+                conversationTabBtn.classList.remove('active');
+                toolsTabBtn.classList.remove('active');
+                
+                // Configure panes based on selected tab
+                if (tabName === 'conversation') {
+                    conversationTabBtn.classList.add('active');
+                    
+                    conversationPane.style.display = 'flex'; // Show conversation pane
+                    conversationPane.style.height = '100%'; // Take full available height
+                    conversationPane.style.flexGrow = '1';
+                    
+                    resizer.style.display = 'none';
+                    toolsPane.style.display = 'none';
+                } else if (tabName === 'tools') {
+                    toolsTabBtn.classList.add('active');
+                    
+                    // Retrieve stored height or set a default (e.g., 50%)
+                    const storedConvHeight = localStorage.getItem('conversationPaneHeight') || '50%';
+                    conversationPane.style.display = 'flex';
+                    conversationPane.style.height = storedConvHeight;
+                    conversationPane.style.flexGrow = '0'; // Don't grow, use explicit height
+                    
+                    resizer.style.display = 'block';
+                    
+                    toolsPane.style.display = 'flex'; // Show tools pane
+                    toolsPane.style.flexGrow = '1'; // Tools pane takes remaining space
+                }
+            }
+        }
 
         const userInput = document.getElementById('userInput');
         const chatbox = document.getElementById('chatbox');
         let currentAgentMessageGroup = null; // To hold logs for the current agent interaction
         let currentLogBuffer = []; // Buffer for all logs of the current interaction
+        let activeConversationId = null; // Currently active conversation ID
 
         function appendInitialAgentMessage(text) {
             const agentMessageGroupId = `agent-message-group-${Date.now()}`;
@@ -891,7 +1735,16 @@
                         applySyntaxHighlighting(logEntry);
                     });
                     if(logContentDiv.childNodes.length > 0 && logContentDiv.parentElement.querySelector('.log-toggle-button')){
-                         logContentDiv.parentElement.querySelector('.log-toggle-button').style.display = 'inline-flex';
+                        const toggleButton = logContentDiv.parentElement.querySelector('.log-toggle-button');
+                        toggleButton.style.display = 'inline-flex';
+                        
+                        // Make sure the click handler is attached when making the button visible
+                        toggleButton.onclick = () => {
+                            logContentDiv.classList.toggle('active');
+                            toggleButton.innerHTML = logContentDiv.classList.contains('active') 
+                                ? `<svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path></svg> Hide Logs` 
+                                : `<svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path></svg> View Logs`;
+                        };
                     }
                     logContentDiv.scrollTop = logContentDiv.scrollHeight;
                 }
@@ -1111,10 +1964,13 @@
         function appendLoadingIndicator(container) {
             const loadingDiv = document.createElement('div');
             loadingDiv.classList.add('loading-indicator-content');
-            const loaderSpan = document.createElement('span');
-            loaderSpan.classList.add('loader');
-            loadingDiv.appendChild(loaderSpan);
-            loadingDiv.appendChild(document.createTextNode('Thinking...'));
+            
+            // Create animated thinking text with dots
+            loadingDiv.appendChild(document.createTextNode('Thinking'));
+            
+            const dotsSpan = document.createElement('span');
+            dotsSpan.classList.add('thinking-dots');
+            loadingDiv.appendChild(dotsSpan);
 
             const liveLogArea = document.createElement('div');
             liveLogArea.classList.add('live-log-feed');
@@ -1177,7 +2033,8 @@
         }
 
         function handleKeyPress(event) {
-            if (event.key === 'Enter' && !userInput.disabled) {
+            if (event.key === 'Enter' && !event.shiftKey && !document.getElementById('userInput').disabled) {
+                event.preventDefault(); // Prevent default to avoid new line
                 sendMessage();
             } else if (event.key === 'Escape') { // Close modal on Escape key
                 closeToolModal();
@@ -1209,7 +2066,12 @@
             codeElement.className = 'language-plaintext'; // Default class while loading
             hljs.highlightElement(codeElement); // Basic highlight for loading message
 
-            toolModal.style.display = 'block'; // Show modal before fetching so user sees loading state
+            // Show modal and add the 'show' class to trigger the animation
+            toolModal.style.display = 'block';
+            // Give a small delay to ensure display: block is applied first
+            setTimeout(() => {
+                toolModal.classList.add('show');
+            }, 10);
 
             try {
                 const response = await fetch(`/get_tool_details/${toolName}`);
@@ -1258,12 +2120,18 @@
 
         function closeToolModal() {
             if (toolModal) {
-                toolModal.style.display = 'none';
-                // Clear content when closing
-                document.getElementById('modal-tool-name').textContent = 'Tool Name';
-                document.getElementById('modal-tool-description').textContent = 'Tool description goes here.';
-                document.getElementById('modal-tool-code').textContent = '# Code or schema will be loaded here...';
-                document.getElementById('modal-tool-code').className = 'language-python';
+                // Remove the 'show' class first to trigger hide animation
+                toolModal.classList.remove('show');
+                
+                // Wait for animation to complete before hiding the modal
+                setTimeout(() => {
+                    toolModal.style.display = 'none';
+                    // Clear content when closing
+                    document.getElementById('modal-tool-name').textContent = 'Tool Name';
+                    document.getElementById('modal-tool-description').textContent = 'Tool description goes here.';
+                    document.getElementById('modal-tool-code').textContent = '# Code or schema will be loaded here...';
+                    document.getElementById('modal-tool-code').className = 'language-python';
+                }, 300); // Match the CSS transition duration (0.3s)
             }
         }
 
@@ -1283,10 +2151,13 @@
                 populateList('predefined-tools-list', info.predefined_tools, 'predefined', 
                     item => `<strong>${item.name}</strong><span>${item.description || 'N/A'}</span>`);
                 populateList('dynamic-tools-list', info.dynamic_tools, 'dynamic', 
-                    item => `<strong>${item.name}</strong><span>${item.description || 'User-generated'}</span>`);
+                    item => `<strong>${item.name}</strong><span>${item.description || 'User-generated'}</span><button class="dynamic-tool-delete" title="Delete Tool" data-tool-name="${item.name}">&times;</button>`);
                 // API keys don't need the modal functionality
                 populateList('api-keys-list', info.api_keys, 'api', 
                     item => `<strong>${item.name}</strong><span>${item.service || 'N/A'}: ${item.description || 'N/A'}</span>`);
+                
+                // Add delete tool handlers
+                addDynamicToolDeleteHandlers();
             } catch (error) { console.error("Error updating side panel info:", error); }
         }
 
@@ -1313,42 +2184,164 @@
             }
         }
 
-        // --- Model Selector Logic (Phase 1) ---
-        const modelSelector = document.getElementById('model-selector');
-        const availableModels = [
-            { name: "Gemini 2.5 Pro", id: "gemini-2.5-pro-preview-05-06" },
-            { name: "Gemini 2.5 Flash", id: "gemini-2.5-flash-preview-04-17" },
-            { name: "Gemini 2.0 Flash", id: "gemini-2.0-flash" }
-        ];
-
-        function initializeModelSelector() {
-            availableModels.forEach(model => {
-                const option = document.createElement('option');
-                option.value = model.id;
-                option.textContent = model.name;
-                modelSelector.appendChild(option);
-            });
-
-            // Load saved model from localStorage
-            const savedModel = localStorage.getItem('selectedAiModel');
-            if (savedModel && availableModels.some(m => m.id === savedModel)) {
-                modelSelector.value = savedModel;
-            } else if (availableModels.length > 0) {
-                // Fallback to the first model if no valid saved model or if saved model is not in current list
-                modelSelector.value = availableModels[0].id;
-                localStorage.setItem('selectedAiModel', availableModels[0].id); // Save the default
-            }
-
-            modelSelector.addEventListener('change', (event) => {
-                const selectedModelId = event.target.value;
-                localStorage.setItem('selectedAiModel', selectedModelId);
-                console.log(`Selected AI Model (UI): ${selectedModelId}`);
-                // TODO (Phase 2): Send this selectedModelId to the backend
-                // For now, we'll just log it and potentially show a UI confirmation/trigger a refresh if needed.
-                // Example: alert(`Model changed to: ${selectedModelId}. Backend update pending.`);
+        function addDynamicToolDeleteHandlers() {
+            const deleteButtons = document.querySelectorAll('.dynamic-tool-delete');
+            deleteButtons.forEach(button => {
+                button.addEventListener('click', async (event) => {
+                    event.stopPropagation(); // Prevent triggering the tool click/modal
+                    const toolName = button.dataset.toolName;
+                    
+                    if (confirm(`Are you sure you want to delete the tool "${toolName}"?`)) {
+                        try {
+                            const response = await fetch(`/delete_dynamic_tool/${toolName}`, {
+                                method: 'DELETE'
+                            });
+                            
+                            if (response.ok) {
+                                // Remove the tool from the list
+                                const toolItem = button.closest('li');
+                                toolItem.style.opacity = '0';
+                                toolItem.style.transform = 'translateX(100px)';
+                                toolItem.style.transition = 'all 0.3s ease';
+                                
+                                setTimeout(() => {
+                                    toolItem.remove();
+                                    // If no tools left, add the "None available" message
+                                    const list = document.getElementById('dynamic-tools-list');
+                                    if (list.children.length === 0) {
+                                        const emptyLi = document.createElement('li');
+                                        emptyLi.innerHTML = '<em>None available.</em>';
+                                        list.appendChild(emptyLi);
+                                    }
+                                }, 300);
+                            } else {
+                                const errorData = await response.json();
+                                alert(`Failed to delete tool: ${errorData.error || 'Unknown error'}`);
+                            }
+                        } catch (error) {
+                            console.error('Error deleting dynamic tool:', error);
+                            alert('An error occurred while deleting the tool');
+                        }
+                    }
+                });
             });
         }
 
+        // --- Model Selector Logic ---
+        const availableModels = [
+            { 
+                name: "Gemini 2.5 Pro", 
+                id: "gemini-2.5-pro-preview-05-06",
+                description: "Most powerful model with advanced reasoning and creative abilities"
+            },
+            { 
+                name: "Gemini 2.5 Flash", 
+                id: "gemini-2.5-flash-preview-04-17",
+                description: "Fast and efficient model for quick responses to simple queries"
+            },
+            { 
+                name: "Gemini 2.0 Flash", 
+                id: "gemini-2.0-flash",
+                description: "Balanced model for most everyday tasks"
+            }
+        ];
+
+        function initializeModelSelector() {
+            // Populate the model options in the modal
+            const modelOptionsContainer = document.getElementById('model-options-container');
+            modelOptionsContainer.innerHTML = ''; // Clear any existing content
+            
+            // Load saved model from localStorage
+            const savedModelId = localStorage.getItem('selectedAiModel') || availableModels[0].id;
+            
+            // Create model options for the modal
+            availableModels.forEach(model => {
+                const modelOption = document.createElement('button');
+                modelOption.classList.add('model-option');
+                
+                if (model.id === savedModelId) {
+                    modelOption.classList.add('selected');
+                }
+                
+                modelOption.dataset.modelId = model.id;
+                modelOption.innerHTML = `
+                    <span class="model-name">${model.name}</span>
+                    <span class="model-description">${model.description}</span>
+                `;
+                
+                // Add click handler to select model
+                modelOption.addEventListener('click', () => {
+                    selectModel(model.id);
+                    closeModelModal();
+                });
+                
+                modelOptionsContainer.appendChild(modelOption);
+            });
+            
+            // Update the selector button title with the current model name
+            updateModelButtonTitle(savedModelId);
+        }
+        
+        function updateModelButtonTitle(modelId) {
+            const selectedModel = availableModels.find(model => model.id === modelId);
+            if (selectedModel) {
+                const modelButton = document.getElementById('model-selector-button');
+                modelButton.title = `Current model: ${selectedModel.name} (Click to change)`;
+            }
+        }
+        
+        function selectModel(modelId) {
+            // Update localStorage
+            localStorage.setItem('selectedAiModel', modelId);
+            
+            // Update the selected class on options
+            const options = document.querySelectorAll('.model-option');
+            options.forEach(option => {
+                if (option.dataset.modelId === modelId) {
+                    option.classList.add('selected');
+                } else {
+                    option.classList.remove('selected');
+                }
+            });
+            
+            // Update the selector button title
+            updateModelButtonTitle(modelId);
+            
+            console.log(`Selected AI Model: ${modelId}`);
+            // Future: Add backend communication to update the model
+        }
+        
+        // Model Modal Functions
+        const modelModal = document.getElementById('model-selector-modal');
+        
+        function openModelModal() {
+            // Show modal and add the 'show' class to trigger the animation
+            modelModal.style.display = 'block';
+            // Give a small delay to ensure display: block is applied first
+            setTimeout(() => {
+                modelModal.classList.add('show');
+            }, 10);
+        }
+        
+        function closeModelModal() {
+            // Remove the 'show' class first to trigger hide animation
+            modelModal.classList.remove('show');
+            
+            // Wait for animation to complete before hiding the modal
+            setTimeout(() => {
+                modelModal.style.display = 'none';
+            }, 300); // Match the CSS transition duration (0.3s)
+        }
+        
+        // Close modal if user clicks outside the modal content
+        window.onclick = function(event) {
+            if (event.target == modelModal) {
+                closeModelModal();
+            } else if (event.target == toolModal) {
+                closeToolModal();
+            }
+        }
+        
         // --- Collapsible Section Logic ---
         function initializeCollapsibleSections() {
             const sections = document.querySelectorAll('.collapsible-section');
@@ -1383,6 +2376,385 @@
                     }
                 });
             });
+        }
+
+        // --- Side Panel Resizer Logic ---
+        function initializeSidePanelResizer() {
+            const resizer = document.getElementById('side-panel-resizer');
+            const sidePanel = document.getElementById('side-panel');
+            const conversationPane = document.getElementById('conversation-pane');
+            // const toolsPane = document.getElementById('tools-pane'); // Not directly needed for height calc if convPane has explicit height
+
+            let isResizing = false;
+            let initialConvPaneHeight = 0;
+            let startY = 0;
+
+            resizer.addEventListener('mousedown', (e) => {
+                isResizing = true;
+                startY = e.clientY;
+                initialConvPaneHeight = conversationPane.offsetHeight;
+                
+                // Add classes to prevent text selection and show resizing cursor globally
+                document.body.style.userSelect = 'none';
+                document.body.style.cursor = 'ns-resize';
+                resizer.style.backgroundColor = 'var(--primary-accent-darker)'; // Indicate active resizing
+
+                document.addEventListener('mousemove', handleMouseMove);
+                document.addEventListener('mouseup', handleMouseUp);
+            });
+
+            function handleMouseMove(e) {
+                if (!isResizing) return;
+
+                const deltaY = e.clientY - startY;
+                let newHeight = initialConvPaneHeight + deltaY;
+
+                // Constraints (e.g., min 100px, max 80% of side panel height)
+                const minHeight = 100; // Minimum height for conversation pane
+                const sidePanelContentHeight = sidePanel.offsetHeight - sidePanel.querySelector('.side-panel-tabs').offsetHeight - resizer.offsetHeight;
+                const maxHeight = sidePanelContentHeight * 0.8; // Max 80% of available content space
+                
+                newHeight = Math.max(minHeight, Math.min(newHeight, maxHeight));
+                
+                conversationPane.style.height = `${newHeight}px`;
+                conversationPane.style.flexGrow = '0'; // Ensure flex-grow doesn't interfere
+            }
+
+            function handleMouseUp() {
+                if (!isResizing) return;
+                isResizing = false;
+
+                document.removeEventListener('mousemove', handleMouseMove);
+                document.removeEventListener('mouseup', handleMouseUp);
+
+                // Remove global styles
+                document.body.style.userSelect = '';
+                document.body.style.cursor = '';
+                resizer.style.backgroundColor = 'var(--border-color-light)'; // Reset resizer color
+
+                // Save the new height to localStorage
+                localStorage.setItem('conversationPaneHeight', conversationPane.style.height);
+            }
+        }
+
+        // --- Conversation History Panel Logic ---
+        function initializeConversationPanel() {
+            const sidePanel = document.getElementById('side-panel');
+            const originalToggleBtn = document.getElementById('side-panel-toggle');
+            const chatPanelToggleBtn = document.getElementById('chat-panel-side-toggle');
+            
+            const chevronLeftIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>`;
+            const chevronRightIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>`;
+
+            function updateToggleIcons() {
+                if (sidePanel.classList.contains('collapsed')) {
+                    originalToggleBtn.innerHTML = chevronRightIcon;
+                    chatPanelToggleBtn.innerHTML = chevronRightIcon;
+                } else {
+                    originalToggleBtn.innerHTML = chevronLeftIcon;
+                    chatPanelToggleBtn.innerHTML = chevronLeftIcon;
+                }
+            }
+
+            function togglePanel() {
+                sidePanel.classList.toggle('collapsed');
+                updateToggleIcons();
+            }
+
+            originalToggleBtn.addEventListener('click', togglePanel);
+            chatPanelToggleBtn.addEventListener('click', togglePanel);
+
+            // Set initial icon states
+            updateToggleIcons(); 
+
+            // New chat button
+            const newChatBtn = document.getElementById('new-chat-button');
+            newChatBtn.addEventListener('click', createNewConversation);
+
+            // Initialize rename dialog
+            initializeRenameDialog();
+        }
+
+        function loadConversations() {
+            fetch('/get_conversations')
+                .then(response => response.json())
+                .then(conversations => {
+                    renderConversationsList(conversations);
+                    
+                    // Get the active conversation ID from the server response
+                    fetch('/get_system_info')
+                        .then(response => response.json())
+                        .then(info => {
+                            if (info.active_conversation_id) {
+                                activeConversationId = info.active_conversation_id;
+                                highlightActiveConversation();
+                                
+                                // Load the active conversation content
+                                loadConversation(activeConversationId);
+                            } else if (conversations.length > 0) {
+                                // No active conversation set, but we have conversations - load the first one
+                                loadConversation(conversations[0].id);
+                            }
+                        });
+                })
+                .catch(error => {
+                    console.error('Error loading conversations:', error);
+                });
+        }
+
+        function renderConversationsList(conversations) {
+            const listElement = document.getElementById('conversations-list');
+            listElement.innerHTML = '';
+
+            if (conversations.length === 0) {
+                const emptyMessage = document.createElement('div');
+                emptyMessage.className = 'empty-conversations-message';
+                emptyMessage.textContent = 'No conversations yet. Start a new chat!';
+                emptyMessage.style.padding = '20px';
+                emptyMessage.style.color = 'var(--text-tertiary)';
+                emptyMessage.style.textAlign = 'center';
+                listElement.appendChild(emptyMessage);
+                return;
+            }
+
+            conversations.forEach(conversation => {
+                const item = document.createElement('div');
+                item.className = 'conversation-item';
+                item.dataset.id = conversation.id;
+                
+                if (conversation.id === activeConversationId) {
+                    item.classList.add('active');
+                }
+
+                const title = document.createElement('div');
+                title.className = 'conversation-title';
+                title.textContent = conversation.title;
+
+                const actions = document.createElement('div');
+                actions.className = 'conversation-actions';
+
+                // Rename button
+                const renameBtn = document.createElement('button');
+                renameBtn.className = 'conversation-action-btn rename-btn';
+                renameBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 20h9"></path>
+                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+                </svg>`;
+                renameBtn.title = "Rename";
+                renameBtn.addEventListener('click', e => {
+                    e.stopPropagation();
+                    openRenameDialog(conversation.id, conversation.title);
+                });
+
+                // Delete button
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'conversation-action-btn delete-btn';
+                deleteBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 6h18"></path>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                </svg>`;
+                deleteBtn.title = "Delete";
+                deleteBtn.addEventListener('click', e => {
+                    e.stopPropagation();
+                    if (confirm(`Delete conversation "${conversation.title}"?`)) {
+                        deleteConversation(conversation.id);
+                    }
+                });
+
+                actions.appendChild(renameBtn);
+                actions.appendChild(deleteBtn);
+
+                item.appendChild(title);
+                item.appendChild(actions);
+
+                // Click on conversation item to load that conversation
+                item.addEventListener('click', () => {
+                    loadConversation(conversation.id);
+                });
+
+                listElement.appendChild(item);
+            });
+        }
+
+        function createNewConversation() {
+            fetch('/new_conversation')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        activeConversationId = data.conversation_id;
+                        // Clear the chat
+                        chatbox.innerHTML = '';
+                        loadConversations(); // Refresh the conversations list
+                    }
+                })
+                .catch(error => {
+                    console.error('Error creating new conversation:', error);
+                });
+        }
+
+        function loadConversation(conversationId) {
+            fetch(`/load_conversation/${conversationId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        activeConversationId = conversationId;
+                        
+                        // Update UI to highlight active conversation
+                        highlightActiveConversation();
+                        
+                        // Clear current chat
+                        chatbox.innerHTML = '';
+                        
+                        // Load conversation messages
+                        const conversation = data.conversation;
+                        if (conversation.messages && conversation.messages.length > 0) {
+                            conversation.messages.forEach(message => {
+                                if (message.role === 'user') {
+                                    appendMessageToChat(message.content, 'user');
+                                } else if (message.role === 'agent') {
+                                    const messageGroup = appendMessageToChat(message.content, 'agent');
+                                    
+                                    // If there are logs, populate the log details
+                                    if (message.logs && message.logs.length > 0) {
+                                        const logContentDiv = ensureLogDetailsContainer(messageGroup, true);
+                                        message.logs.forEach(logText => {
+                                            const logEntry = document.createElement('div');
+                                            logEntry.classList.add('log-entry');
+                                            const unsafeLogHtml = marked.parse(logText);
+                                            logEntry.innerHTML = DOMPurify.sanitize(unsafeLogHtml);
+                                            logContentDiv.appendChild(logEntry);
+                                        });
+                                        
+                                        // Add tools used
+                                        if (message.tools_used && message.tools_used.length > 0) {
+                                            const bubbleContent = messageGroup.querySelector('.message-bubble .message-content');
+                                            const toolsInfoDiv = document.createElement('div');
+                                            toolsInfoDiv.classList.add('used-tools-info');
+                                            
+                                            const tagsContainer = document.createElement('div');
+                                            tagsContainer.classList.add('tool-tags-container');
+                                            
+                                            message.tools_used.forEach(toolName => {
+                                                const toolTag = document.createElement('span');
+                                                toolTag.classList.add('tool-tag');
+                                                toolTag.textContent = toolName;
+                                                tagsContainer.appendChild(toolTag);
+                                            });
+                                            
+                                            toolsInfoDiv.appendChild(tagsContainer);
+                                            bubbleContent.appendChild(toolsInfoDiv);
+                                        }
+                                    }
+                                }
+                            });
+                            
+                            // Apply syntax highlighting to all code blocks
+                            chatbox.querySelectorAll('.message-group').forEach(group => {
+                                applySyntaxHighlighting(group);
+                            });
+                            
+                            // Scroll to bottom
+                            chatbox.scrollTop = chatbox.scrollHeight;
+                        }
+                        // No 'else' block - empty conversations now stay empty
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading conversation:', error);
+                });
+        }
+
+        function deleteConversation(conversationId) {
+            fetch(`/delete_conversation/${conversationId}`, {
+                method: 'DELETE'
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        loadConversations(); // Refresh the conversations list
+                        
+                        // If we deleted the active conversation, clear the chat
+                        if (conversationId === activeConversationId) {
+                            chatbox.innerHTML = '';
+                            appendInitialAgentMessage("Hello! I am your advanced AI assistant. How can I help you today?");
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Error deleting conversation:', error);
+                });
+        }
+
+        function highlightActiveConversation() {
+            const items = document.querySelectorAll('.conversation-item');
+            items.forEach(item => {
+                if (item.dataset.id === activeConversationId) {
+                    item.classList.add('active');
+                } else {
+                    item.classList.remove('active');
+                }
+            });
+        }
+
+        function initializeRenameDialog() {
+            const dialog = document.getElementById('rename-dialog');
+            const input = document.getElementById('rename-input');
+            const cancelBtn = document.getElementById('rename-cancel');
+            const saveBtn = document.getElementById('rename-save');
+            
+            let currentConversationId = null;
+            
+            // Close dialog when Cancel is clicked
+            cancelBtn.addEventListener('click', () => {
+                dialog.classList.remove('active');
+                currentConversationId = null;
+            });
+            
+            // Save new title when Save is clicked
+            saveBtn.addEventListener('click', () => {
+                const newTitle = input.value.trim();
+                if (newTitle && currentConversationId) {
+                    renameConversation(currentConversationId, newTitle);
+                    dialog.classList.remove('active');
+                    currentConversationId = null;
+                }
+            });
+            
+            // Close dialog when clicked outside
+            dialog.addEventListener('click', (e) => {
+                if (e.target === dialog) {
+                    dialog.classList.remove('active');
+                    currentConversationId = null;
+                }
+            });
+            
+            // Make the openRenameDialog function available globally
+            window.openRenameDialog = (conversationId, currentTitle) => {
+                currentConversationId = conversationId;
+                input.value = currentTitle || '';
+                dialog.classList.add('active');
+                input.focus();
+                input.select();
+            };
+        }
+
+        function renameConversation(conversationId, newTitle) {
+            fetch(`/update_conversation_title/${conversationId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ title: newTitle })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        loadConversations(); // Refresh the conversations list
+                    }
+                })
+                .catch(error => {
+                    console.error('Error renaming conversation:', error);
+                });
         }
     </script>
 </body>

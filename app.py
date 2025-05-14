@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, Response
+from flask import Flask, render_template, request, jsonify, Response, session
 import os
 import main as agent_core # Assuming main.py can be imported and its core logic refactored
 import json # For formatting SSE data if it's complex, though we'll use strings for now
@@ -7,9 +7,11 @@ import inspect # <-- Add inspect module
 import yaml # Add yaml import
 import tool_manager # Import the tool_manager module
 import ast # For parsing Python code to get docstrings
+import db_manager # Import the database manager for chat history
 
 # Explicitly set static folder
 app = Flask(__name__, static_folder='static')
+app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))  # For session management
 
 def get_first_docstring_line_from_code(code_str: str) -> str | None:
     """Helper to extract the first line of a docstring from a code string."""
@@ -46,7 +48,23 @@ else:
 @app.route('/')
 def index():
     """Serves the main HTML page."""
+    # Create a new conversation if none exists in session
+    if 'conversation_id' not in session:
+        session['conversation_id'] = db_manager.create_conversation()
+    
     return render_template('index.html')
+
+@app.route('/new_conversation')
+def new_conversation():
+    """Create a new conversation and store its ID in the session."""
+    # Create a new conversation
+    conversation_id = db_manager.create_conversation()
+    session['conversation_id'] = conversation_id
+    
+    return jsonify({
+        'success': True,
+        'conversation_id': conversation_id
+    })
 
 @app.route('/send_message') # Changed to GET, message via query param for SSE
 def send_message_sse():
@@ -56,12 +74,35 @@ def send_message_sse():
         # For SSE, errors ideally should also be streamed if the connection is open,
         # but for a missing message param, a simple HTTP error is fine before streaming starts.
         return jsonify({'error': 'No message provided'}), 400
+    
+    # Ensure we have a conversation ID in the session
+    if 'conversation_id' not in session:
+        session['conversation_id'] = db_manager.create_conversation()
+    
+    conversation_id = session['conversation_id']
+    
+    # Store the user message in the database
+    db_manager.add_message(
+        conversation_id=conversation_id,
+        content=user_message,
+        role='user'
+    )
+    
+    # Set default title based on first message if not already set
+    conversation = db_manager.get_conversation(conversation_id)
+    if conversation and conversation.get('title') == 'New Conversation' and len(conversation.get('messages', [])) <= 1:
+        title = db_manager.extract_title_from_first_message(conversation_id)
+        if title:
+            db_manager.update_conversation_title(conversation_id, title)
 
     print(f"WebUI User Message (for SSE): {user_message}")
 
     def generate_sse_stream():
         # The old stream_log_callback is no longer needed here,
         # as handle_web_request will yield log/reply strings directly.
+        logs = []
+        tools_used = []
+        agent_reply = None
 
         try:
             # agent_core.handle_web_request is now a generator
@@ -69,10 +110,23 @@ def send_message_sse():
                 if message_part.startswith("log: "):
                     log_content = message_part[5:] # Remove "log: " prefix
                     formatted_log = str(log_content).replace('\n', '\\n')
+                    logs.append(log_content)
                     yield f"data: {formatted_log}\n\n"
+                    
+                    # Check for tools used in logs
+                    if log_content.startswith("tools_used_summary: "):
+                        try:
+                            tools_json = log_content[len("tools_used_summary: "):]
+                            tools_list = json.loads(tools_json)
+                            if isinstance(tools_list, list):
+                                tools_used.extend(tools_list)
+                        except json.JSONDecodeError:
+                            print(f"Error parsing tools used JSON: {tools_json}")
+                            
                 elif message_part.startswith("reply: "):
                     reply_content = message_part[7:].strip() # Remove prefix AND trim whitespace
                     formatted_final_reply = str(reply_content).replace('\n', '\\n')
+                    agent_reply = reply_content
                     yield f"event: final_reply\ndata: {formatted_final_reply}\n\n"
                 else:
                     # Should not happen if main.py adheres to the prefix convention
@@ -87,12 +141,135 @@ def send_message_sse():
             # Send an error event to the client
             error_message = f"An error occurred: {str(e)}".replace('\n', '\\n')
             yield f"event: stream_error\ndata: {error_message}\n\n"
+            agent_reply = f"Error: {str(e)}"
         finally:
+            # Store the agent's response in the database
+            if agent_reply:
+                db_manager.add_message(
+                    conversation_id=conversation_id,
+                    content=agent_reply,
+                    role='agent',
+                    logs=logs,
+                    tools_used=tools_used if tools_used else None
+                )
+            
             # Optionally, send a stream close event, though client usually detects closure
             yield "event: stream_end\ndata: Stream ended\n\n"
             # print("SSE STREAM ENDED")
             
     return Response(generate_sse_stream(), mimetype='text/event-stream')
+
+@app.route('/get_conversations')
+def get_conversations():
+    """Get a list of all conversations."""
+    conversations = db_manager.get_all_conversations()
+    return jsonify(conversations)
+
+@app.route('/get_conversation/<conversation_id>')
+def get_specific_conversation(conversation_id):
+    """Get a specific conversation by ID."""
+    conversation = db_manager.get_conversation(conversation_id)
+    if not conversation:
+        return jsonify({'error': 'Conversation not found'}), 404
+    
+    return jsonify(conversation)
+
+@app.route('/load_conversation/<conversation_id>')
+def load_conversation(conversation_id):
+    """Set the current conversation in the session."""
+    # Check if the conversation exists first
+    conversation = db_manager.get_conversation(conversation_id)
+    if not conversation:
+        return jsonify({'error': 'Conversation not found'}), 404
+    
+    # Set in session
+    session['conversation_id'] = conversation_id
+    
+    return jsonify({
+        'success': True,
+        'conversation': conversation
+    })
+
+@app.route('/update_conversation_title/<conversation_id>', methods=['POST'])
+def update_title(conversation_id):
+    """Update a conversation's title."""
+    data = request.json
+    if not data or 'title' not in data:
+        return jsonify({'error': 'Title is required'}), 400
+    
+    success = db_manager.update_conversation_title(conversation_id, data['title'])
+    if not success:
+        return jsonify({'error': 'Conversation not found or title not updated'}), 404
+    
+    return jsonify({'success': True})
+
+@app.route('/delete_conversation/<conversation_id>', methods=['DELETE'])
+def delete_specific_conversation(conversation_id):
+    """Delete a conversation."""
+    success = db_manager.delete_conversation(conversation_id)
+    if not success:
+        return jsonify({'error': 'Conversation not found or not deleted'}), 404
+    
+    # If we just deleted the active conversation, create a new one
+    if session.get('conversation_id') == conversation_id:
+        session['conversation_id'] = db_manager.create_conversation()
+    
+    return jsonify({'success': True})
+
+@app.route('/delete_dynamic_tool/<tool_name>', methods=['DELETE'])
+def delete_dynamic_tool(tool_name):
+    """Delete a dynamic tool by name."""
+    if not tool_name:
+        return jsonify({'error': 'Tool name is required'}), 400
+    
+    try:
+        # Check if the tool exists in YAML or in memory
+        tool_exists = False
+        in_yaml = False
+        
+        # Check YAML file
+        if os.path.exists(tool_manager.persistent_tool_registry_path):
+            with open(tool_manager.persistent_tool_registry_path, 'r') as f:
+                persisted_tools = yaml.safe_load(f)
+                if isinstance(persisted_tools, list):
+                    for tool_entry in persisted_tools:
+                        if isinstance(tool_entry, dict) and 'tool_names' in tool_entry:
+                            if tool_name in tool_entry['tool_names']:
+                                tool_exists = True
+                                in_yaml = True
+                                break
+                                
+        # Check in-memory registry 
+        in_memory = hasattr(agent_core, 'dynamic_tool_registry') and tool_name in agent_core.dynamic_tool_registry
+        if in_memory:
+            tool_exists = True
+        
+        if not tool_exists:
+            return jsonify({'error': f'Tool "{tool_name}" not found in YAML or memory'}), 404
+        
+        # Remove from YAML if present there
+        if in_yaml:
+            tool_manager.remove_dynamic_tools([tool_name])
+        
+        # Remove from in-memory registry if present there
+        if in_memory:
+            del agent_core.dynamic_tool_registry[tool_name]
+            print(f"Removed tool '{tool_name}' from in-memory registry")
+        
+        # Return success with details of where it was removed from
+        removal_locations = []
+        if in_yaml:
+            removal_locations.append("YAML registry")
+        if in_memory:
+            removal_locations.append("in-memory registry")
+            
+        return jsonify({
+            'success': True, 
+            'message': f'Tool "{tool_name}" successfully deleted from: {", ".join(removal_locations)}'
+        })
+    
+    except Exception as e:
+        return jsonify({'error': f'Error deleting tool: {str(e)}'}), 500
 
 @app.route('/get_system_info')
 def get_system_info():
@@ -165,7 +342,8 @@ def get_system_info():
     return jsonify({
         'predefined_tools': predefined_tools_info,
         'dynamic_tools': dynamic_tools_from_yaml_info,
-        'api_keys': api_key_details_info
+        'api_keys': api_key_details_info,
+        'active_conversation_id': session.get('conversation_id')
     })
 
 @app.route('/get_tool_details/<tool_name>')

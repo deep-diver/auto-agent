@@ -1,57 +1,4 @@
 - tool_names:
-  - get_weather_for_location
-  code: "import requests\nimport os\nimport json\n\ndef get_weather_for_location(location_query:\
-    \ str) -> str:\n    \"\"\"\n    Fetches current weather data for a specified location\
-    \ using OpenWeatherMap API.\n\n    Args:\n        location_query: A string representing\
-    \ the location, e.g., \"City, CountryCode\" or \"City\".\n                   \
-    \     Examples: \"London, UK\", \"Tokyo\", \"Daejeon, South Korea\".\n\n    Returns:\n\
-    \        A JSON string containing structured weather information (location name,\
-    \ country code,\n        temperature in Celsius, feels like temperature in Celsius,\
-    \ weather description,\n        humidity percentage, wind speed in meters/sec)\
-    \ if successful.\n        Returns a JSON string with an \"error\" key if the API\
-    \ key is missing,\n        the location is not found, or any other error occurs\
-    \ during the API call.\n    \"\"\"\n    api_key = os.environ.get('OPEN_WEATHER_API_KEY')\n\
-    \    if not api_key:\n        return json.dumps({\"error\": \"OpenWeatherMap API\
-    \ key (OPEN_WEATHER_API_KEY) not found in environment.\"})\n\n    base_url = \"\
-    https://api.openweathermap.org/data/2.5/weather\"\n    params = {\n        \"\
-    q\": location_query,\n        \"appid\": api_key,\n        \"units\": \"metric\"\
-    \  # For temperature in Celsius and wind speed in meter/sec\n    }\n\n    try:\n\
-    \        response = requests.get(base_url, params=params)\n        response.raise_for_status()\
-    \  # Raises an HTTPError for bad responses (4XX or 5XX)\n        data = response.json()\n\
-    \n        # OpenWeatherMap uses 'cod' internal status code. 200 means success.\n\
-    \        # This should be an int, but comparing as string for safety if API behavior\
-    \ varies.\n        if str(data.get(\"cod\")) != \"200\":\n            error_message\
-    \ = data.get(\"message\", \"Unknown error from OpenWeatherMap API (non-200 'cod').\"\
-    )\n            return json.dumps({\"error\": f\"API Error: {error_message}\",\
-    \ \"api_cod\": data.get(\"cod\")})\n\n        weather_data_list = data.get(\"\
-    weather\")\n        description = \"N/A\"\n        if weather_data_list and isinstance(weather_data_list,\
-    \ list) and len(weather_data_list) > 0:\n            description = weather_data_list[0].get(\"\
-    description\", \"N/A\")\n\n        weather_info = {\n            \"location_name\"\
-    : data.get(\"name\", \"N/A\"),\n            \"country_code\": data.get(\"sys\"\
-    , {}).get(\"country\", \"N/A\"),\n            \"temperature_celsius\": data.get(\"\
-    main\", {}).get(\"temp\", \"N/A\"),\n            \"feels_like_celsius\": data.get(\"\
-    main\", {}).get(\"feels_like\", \"N/A\"),\n            \"weather_description\"\
-    : description,\n            \"humidity_percent\": data.get(\"main\", {}).get(\"\
-    humidity\", \"N/A\"),\n            \"wind_speed_mps\": data.get(\"wind\", {}).get(\"\
-    speed\", \"N/A\")\n        }\n        return json.dumps(weather_info)\n\n    except\
-    \ requests.exceptions.HTTPError as http_err:\n        error_message_detail = str(http_err)\n\
-    \        status_code = \"N/A\"\n        if hasattr(http_err, 'response') and http_err.response\
-    \ is not None:\n            status_code = http_err.response.status_code\n    \
-    \        try:\n                # Try to get more specific error from OWM response\
-    \ body if it's JSON\n                error_data = http_err.response.json()\n \
-    \               if \"message\" in error_data:\n                    error_message_detail\
-    \ = error_data[\"message\"]\n            except json.JSONDecodeError:\n      \
-    \          # Response body is not JSON, stick to original http_err message or\
-    \ response text\n                error_message_detail = http_err.response.text\
-    \ if http_err.response.text else str(http_err)\n        \n        return json.dumps({\"\
-    error\": f\"HTTP error calling OpenWeatherMap API: {error_message_detail}\", \"\
-    status_code\": status_code})\n    except requests.exceptions.RequestException\
-    \ as req_err:\n        # For network issues, DNS failures, timeouts etc.\n   \
-    \     return json.dumps({\"error\": f\"Request error calling OpenWeatherMap API:\
-    \ {str(req_err)}\"})\n    except Exception as e:\n        # Catch-all for any\
-    \ other unexpected errors\n        return json.dumps({\"error\": f\"An unexpected\
-    \ error occurred while fetching weather: {str(e)}\"})\n"
-- tool_names:
   - search_web_with_serper
   code: "import requests\nimport json\nimport os\n\ndef search_web_with_serper(query:\
     \ str):\n    \"\"\"\n    Searches the web using the Serper API (google.serper.dev)\
@@ -91,3 +38,214 @@
     \    return {\"error\": \"Failed to decode JSON response from Serper API.\"}\n\
     \    except Exception as e:\n        return {\"error\": f\"An unexpected error\
     \ occurred: {e}\"}\n"
+- tool_names:
+  - get_weather_for_location
+  code: "import requests\nimport os\nimport json\n\ndef get_weather_for_location(location_query:\
+    \ str) -> dict:\n    \"\"\"\n    Fetches current weather data for a specified\
+    \ location using the OpenWeatherMap API.\n\n    Args:\n        location_query\
+    \ (str): The city name and optionally country code (e.g., \"London\", \"London,UK\"\
+    , \"Daejeon, South Korea\").\n\n    Returns:\n        dict: A dictionary containing\
+    \ weather information (temperature, description, humidity, wind speed, etc.)\n\
+    \              or an error message if the request fails.\n    \"\"\"\n    api_key\
+    \ = os.environ.get('OPEN_WEATHER_API_KEY')\n    if not api_key:\n        return\
+    \ {\"error\": \"OpenWeatherMap API key (OPEN_WEATHER_API_KEY) not found in environment.\"\
+    }\n\n    base_url = 'https://api.openweathermap.org/data/2.5/weather'\n    params\
+    \ = {\n        'q': location_query,\n        'appid': api_key,\n        'units':\
+    \ 'metric'  # For Celsius\n    }\n\n    try:\n        response = requests.get(base_url,\
+    \ params=params)\n        response.raise_for_status()  # Raises an HTTPError for\
+    \ bad responses (4XX or 5XX)\n        data = response.json()\n\n        if data.get(\"\
+    cod\") != 200 and data.get(\"message\"):\n            return {\"error\": f\"API\
+    \ Error: {data.get('message')}\"}\n        \n        # Check for essential data\
+    \ presence\n        if 'weather' not in data or not data['weather'] or 'main'\
+    \ not in data or 'wind' not in data or 'name' not in data:\n            return\
+    \ {\"error\": \"Incomplete weather data received from API.\"}\n\n        weather_description\
+    \ = data['weather'][0]['description']\n        temperature = data['main']['temp']\n\
+    \        feels_like = data['main']['feels_like']\n        humidity = data['main']['humidity']\n\
+    \        wind_speed = data['wind']['speed']\n        city_name = data['name']\n\
+    \        country = data.get('sys', {}).get('country')\n\n        return {\n  \
+    \          \"location\": f\"{city_name}{',' + country if country else ''}\",\n\
+    \            \"temperature_celsius\": temperature,\n            \"feels_like_celsius\"\
+    : feels_like,\n            \"humidity_percent\": humidity,\n            \"weather_description\"\
+    : weather_description,\n            \"wind_speed_mps\": wind_speed\n        }\n\
+    \n    except requests.exceptions.HTTPError as http_err:\n        if response.status_code\
+    \ == 401:\n            return {\"error\": \"Unauthorized. Invalid OpenWeatherMap\
+    \ API key.\"}\n        elif response.status_code == 404:\n            return {\"\
+    error\": f\"Location '{location_query}' not found.\"}\n        else:\n       \
+    \     return {\"error\": f\"HTTP error occurred: {http_err}\"}\n    except requests.exceptions.RequestException\
+    \ as req_err:\n        return {\"error\": f\"Request error occurred: {req_err}\"\
+    }\n    except json.JSONDecodeError:\n        return {\"error\": \"Failed to decode\
+    \ JSON response from OpenWeatherMap API.\"}\n    except KeyError as key_err:\n\
+    \        return {\"error\": f\"Unexpected data format from OpenWeatherMap API.\
+    \ Missing key: {key_err}\"}\n    except Exception as e:\n        return {\"error\"\
+    : f\"An unexpected error occurred: {e}\"}\n"
+- tool_names:
+  - get_text_from_pdf_url
+  code: "import requests\nimport io\nimport os # Standard import, not used for API\
+    \ keys here as this tool doesn't require one from the available list\n\n# Attempt\
+    \ to import PyPDF2. This tool requires PyPDF2 to be installed in the environment.\n\
+    # You can typically install it with: pip install PyPDF2\ntry:\n    from PyPDF2\
+    \ import PdfReader\n    PYPDF2_AVAILABLE = True\nexcept ImportError:\n    PYPDF2_AVAILABLE\
+    \ = False\n\ndef get_text_from_pdf_url(url: str) -> str:\n    \"\"\"\n    Downloads\
+    \ a PDF from a given URL, extracts text from it, and returns the text.\n\n   \
+    \ Args:\n        url: The URL of the PDF file.\n\n    Returns:\n        A string\
+    \ containing the extracted text from the PDF.\n        Returns an error message\
+    \ if downloading or text extraction fails, \n        or if the PyPDF2 library\
+    \ is not available.\n    \"\"\"\n    if not PYPDF2_AVAILABLE:\n        return\
+    \ \"Error: The PyPDF2 library is not installed. Cannot extract text from PDF.\
+    \ Please install it (e.g., 'pip install PyPDF2') and try again.\"\n\n    if not\
+    \ url:\n        return \"Error: No URL provided.\"\n\n    try:\n        # Set\
+    \ a common user-agent to avoid being blocked by some servers\n        headers\
+    \ = {\n            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\
+    \ (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'\n        }\n       \
+    \ # Download the PDF content with a timeout\n        response = requests.get(url,\
+    \ headers=headers, timeout=60) # Timeout in seconds\n        response.raise_for_status()\
+    \  # Raises HTTPError for bad status codes (4XX or 5XX)\n        \n        pdf_bytes\
+    \ = response.content\n        if not pdf_bytes:\n            return \"Error: Downloaded\
+    \ PDF content is empty.\"\n\n        # Extract text from PDF bytes\n        pdf_file\
+    \ = io.BytesIO(pdf_bytes)\n        reader = PdfReader(pdf_file)\n        \n  \
+    \      if not reader.pages: # Check if the PDF contains any pages\n          \
+    \  return \"Warning: The PDF has no pages.\"\n\n        text = \"\"\n        for\
+    \ page_num in range(len(reader.pages)):\n            page = reader.pages[page_num]\n\
+    \            extracted_page_text = page.extract_text()\n            if extracted_page_text:\n\
+    \                text += extracted_page_text + \"\\n\\n\" # Add double newline\
+    \ between pages for better readability\n        \n        text = text.strip()\n\
+    \        if not text:\n            return \"Warning: No text could be extracted\
+    \ from the PDF. The PDF might be image-based, contain no selectable text, or be\
+    \ malformed.\"\n            \n        return text\n\n    except requests.exceptions.HTTPError\
+    \ as http_err:\n        return f\"Error downloading PDF: HTTP error occurred:\
+    \ {http_err} for URL {url}\"\n    except requests.exceptions.ConnectionError as\
+    \ conn_err:\n        return f\"Error downloading PDF: Connection error occurred:\
+    \ {conn_err} for URL {url}\"\n    except requests.exceptions.Timeout as timeout_err:\n\
+    \        return f\"Error downloading PDF: Timeout error occurred: {timeout_err}\
+    \ for URL {url}\"\n    except requests.exceptions.RequestException as req_err:\n\
+    \        return f\"Error downloading PDF: An unexpected error occurred during\
+    \ download: {req_err} for URL {url}\"\n    except Exception as e:\n        # Catch\
+    \ PyPDF2 specific errors (e.g., malformed PDF) or other unexpected issues during\
+    \ PDF processing\n        return f\"Error processing PDF content: {str(e)}. The\
+    \ file at {url} might not be a valid PDF or might be corrupted.\"\n"
+- tool_names:
+  - check_internet_connection
+  code: "import requests\n\ndef check_internet_connection():\n    \"\"\"\n    Checks\
+    \ for active internet connection by trying to connect to a reliable host.\n\n\
+    \    Returns:\n        dict: A dictionary with \"status\" (\"connected\" or \"\
+    disconnected\")\n              and an optional \"error\" message if disconnected.\n\
+    \    \"\"\"\n    # Using a URL known for its high availability and that returns\
+    \ a 204 No Content,\n    # which is lightweight and ideal for connectivity checks.\n\
+    \    test_url = \"http://www.google.com/generate_204\"\n    timeout_seconds =\
+    \ 5  # Reasonable timeout for a connectivity check\n\n    try:\n        response\
+    \ = requests.get(test_url, timeout=timeout_seconds)\n        # HTTP 204 No Content\
+    \ is a successful response indicating connectivity.\n        # Any 2xx status\
+    \ code would generally mean connection is okay.\n        if 200 <= response.status_code\
+    \ < 300:\n            return {\"status\": \"connected\"}\n        else:\n    \
+    \        # This case is unlikely with generate_204 if the request itself completes,\n\
+    \            # but included for robustness against unexpected server behavior.\n\
+    \            return {\n                \"status\": \"disconnected\",\n       \
+    \         \"error\": f\"Connected to server, but received an unexpected status\
+    \ code: {response.status_code}\"\n            }\n    except requests.exceptions.Timeout:\n\
+    \        return {\n            \"status\": \"disconnected\",\n            \"error\"\
+    : f\"The request to {test_url} timed out after {timeout_seconds} seconds.\"\n\
+    \        }\n    except requests.exceptions.ConnectionError:\n        # This typically\
+    \ means DNS resolution failed or the server couldn't be reached.\n        return\
+    \ {\n            \"status\": \"disconnected\",\n            \"error\": f\"Failed\
+    \ to establish a connection to {test_url}. Please check your network settings\
+    \ (DNS, firewall, cable).\"\n        }\n    except requests.exceptions.RequestException\
+    \ as e:\n        # Catch-all for other issues that might arise from the requests\
+    \ library.\n        return {\n            \"status\": \"disconnected\",\n    \
+    \        \"error\": f\"An unexpected error occurred while checking internet connection:\
+    \ {str(e)}\"\n        }\n"
+- tool_names:
+  - open_application
+  code: "import subprocess\nimport platform\nimport os\n\ndef open_application(application_name:\
+    \ str) -> dict:\n    \"\"\"\n    Attempts to open a specified application on the\
+    \ user's operating system.\n    Supports macOS, Windows, and Linux.\n\n    Args:\n\
+    \        application_name (str): The name of the application to open.\n      \
+    \                          Examples: \"Safari\" (macOS), \"Notepad\" (Windows),\
+    \ \"firefox\" (Linux).\n\n    Returns:\n        dict: A dictionary containing\
+    \ the status and a message.\n              Example: {\"status\": \"success\",\
+    \ \"message\": \"Attempted to open 'Safari' on macOS.\"}\n                   \
+    \    {\"status\": \"error\", \"message\": \"Application 'Safari' not found on\
+    \ macOS.\"}\n    \"\"\"\n    system = platform.system()\n\n    try:\n        if\
+    \ system == \"Darwin\":  # macOS\n            command = [\"open\", \"-a\", application_name]\n\
+    \            # check=False to inspect returncode and stderr manually.\n      \
+    \      # timeout to prevent hanging if the application fails to start in a reasonable\
+    \ time.\n            process = subprocess.run(command, check=False, capture_output=True,\
+    \ text=True, timeout=15)\n            \n            if process.returncode == 0:\n\
+    \                # `open -a` returns 0 if successful, even if app was already\
+    \ open (it brings to front).\n                return {\"status\": \"success\"\
+    , \"message\": f\"Attempted to open application '{application_name}' on macOS.\"\
+    }\n            else:\n                error_message = process.stderr.strip() if\
+    \ process.stderr else f\"Command failed with return code {process.returncode}.\"\
+    \n                if f\"Unable to find application named '{application_name}'\"\
+    \ in error_message:\n                    return {\"status\": \"error\", \"message\"\
+    : f\"Application '{application_name}' not found on macOS.\"}\n               \
+    \ return {\"status\": \"error\", \"message\": f\"Failed to open '{application_name}'\
+    \ on macOS: {error_message}\"}\n\n        elif system == \"Windows\":\n      \
+    \      # os.startfile() is non-blocking and uses the default application for a\
+    \ file type,\n            # or starts an executable.\n            try:\n     \
+    \           os.startfile(application_name)\n                return {\"status\"\
+    : \"success\", \"message\": f\"Attempted to open application '{application_name}'\
+    \ on Windows.\"}\n            except FileNotFoundError:\n                return\
+    \ {\"status\": \"error\", \"message\": f\"Application or file '{application_name}'\
+    \ not found on Windows.\"}\n            except OSError as e: # Catches other errors\
+    \ like permission issues or invalid executable.\n                return {\"status\"\
+    : \"error\", \"message\": f\"Failed to open '{application_name}' on Windows: {str(e)}\"\
+    }\n\n        elif system == \"Linux\":\n            # xdg-open is the standard\
+    \ way to open files/URLs on Linux desktops.\n            command = [\"xdg-open\"\
+    , application_name]\n            try:\n                # check=True raises CalledProcessError\
+    \ for non-zero exit codes.\n                # timeout in case xdg-open hangs or\
+    \ prompts user indefinitely.\n                process = subprocess.run(command,\
+    \ check=True, capture_output=True, text=True, timeout=15)\n                return\
+    \ {\"status\": \"success\", \"message\": f\"Attempted to open application '{application_name}'\
+    \ on Linux.\"}\n            except subprocess.CalledProcessError as e:\n     \
+    \           error_message = e.stderr.strip() if e.stderr else str(e)\n       \
+    \         return {\"status\": \"error\", \"message\": f\"Failed to open '{application_name}'\
+    \ on Linux using xdg-open: {error_message}\"}\n            except FileNotFoundError:\n\
+    \                # This occurs if 'xdg-open' command itself is not found.\n  \
+    \              return {\"status\": \"error\", \"message\": \"Command 'xdg-open'\
+    \ not found on Linux. Cannot open application.\"}\n            except subprocess.TimeoutExpired:\n\
+    \                return {\"status\": \"error\", \"message\": f\"Opening '{application_name}'\
+    \ on Linux with xdg-open timed out. It might be waiting for user input or the\
+    \ application is unresponsive.\"}\n\n        else:\n            return {\"status\"\
+    : \"error\", \"message\": f\"Unsupported operating system: {system}.\"}\n\n  \
+    \  except subprocess.TimeoutExpired:\n         # This specifically catches timeout\
+    \ for macOS `subprocess.run`\n         return {\"status\": \"error\", \"message\"\
+    : f\"Opening '{application_name}' on macOS timed out. The application may be unresponsive\
+    \ or taking too long to start.\"}\n    except Exception as e:\n        # General\
+    \ catch-all for unexpected errors not handled above.\n        return {\"status\"\
+    : \"error\", \"message\": f\"An unexpected error occurred while trying to open\
+    \ '{application_name}': {str(e)}\"}\n"
+- tool_names:
+  - get_local_system_specs
+  code: "import platform\nimport psutil\nimport os\n\ndef get_local_system_specs():\n\
+    \    \"\"\"Retrieves information about the local device's operating system, CPU,\
+    \ RAM, and storage.\"\"\"\n    specs = {}\n\n    try:\n        # Operating System\n\
+    \        specs['os_platform'] = platform.system()\n        specs['os_release']\
+    \ = platform.release()\n        specs['os_version'] = platform.version()\n   \
+    \     specs['os_architecture'] = platform.machine()\n\n        # CPU\n       \
+    \ specs['cpu_logical_cores'] = psutil.cpu_count(logical=True)\n        specs['cpu_physical_cores']\
+    \ = psutil.cpu_count(logical=False)\n        try:\n            cpu_freq = psutil.cpu_freq()\n\
+    \            if cpu_freq:\n                specs['cpu_current_frequency_mhz']\
+    \ = cpu_freq.current\n                specs['cpu_max_frequency_mhz'] = cpu_freq.max\n\
+    \                specs['cpu_min_frequency_mhz'] = cpu_freq.min\n        except\
+    \ (AttributeError, NotImplementedError):\n            specs['cpu_frequency_mhz']\
+    \ = 'N/A'\n        specs['cpu_model'] = platform.processor() if platform.processor()\
+    \ else 'N/A'\n\n        # RAM\n        virtual_mem = psutil.virtual_memory()\n\
+    \        specs['ram_total_gb'] = round(virtual_mem.total / (1024**3), 2)\n   \
+    \     specs['ram_available_gb'] = round(virtual_mem.available / (1024**3), 2)\n\
+    \        specs['ram_used_gb'] = round(virtual_mem.used / (1024**3), 2)\n     \
+    \   specs['ram_usage_percent'] = virtual_mem.percent\n\n        # Storage\n  \
+    \      storage_info = []\n        partitions = psutil.disk_partitions()\n    \
+    \    for p in partitions:\n            try:\n                usage = psutil.disk_usage(p.mountpoint)\n\
+    \                storage_info.append({\n                    'device': p.device,\n\
+    \                    'mountpoint': p.mountpoint,\n                    'filesystem_type':\
+    \ p.fstype,\n                    'total_gb': round(usage.total / (1024**3), 2),\n\
+    \                    'used_gb': round(usage.used / (1024**3), 2),\n          \
+    \          'free_gb': round(usage.free / (1024**3), 2),\n                    'usage_percent':\
+    \ usage.percent\n                })\n            except (PermissionError, FileNotFoundError):\n\
+    \                # Skip partitions that can't be accessed (e.g. cd-roms with no\
+    \ media)\n                storage_info.append({\n                    'device':\
+    \ p.device,\n                    'mountpoint': p.mountpoint,\n               \
+    \     'filesystem_type': p.fstype,\n                    'error': 'Could not access\
+    \ usage details.'\n                })\n        specs['storage'] = storage_info\n\
+    \n        return specs\n\n    except Exception as e:\n        return {'error':\
+    \ f'Failed to retrieve system specs: {str(e)}'}\n"
