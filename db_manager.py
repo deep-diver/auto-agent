@@ -215,5 +215,48 @@ def extract_title_from_first_message(conversation_id: str) -> Optional[str]:
         
     return title
 
+def update_message_content(conversation_id: str, message_id: str, new_content: str) -> bool:
+    """
+    Update the content of a specific message.
+    
+    Args:
+        conversation_id: The ID of the conversation (for validation)
+        message_id: The ID of the message to update
+        new_content: The new content for the message
+        
+    Returns:
+        bool: True if the update was successful, False otherwise
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # First verify the message exists and belongs to the specified conversation
+    cursor.execute(
+        "SELECT id FROM messages WHERE id = ? AND conversation_id = ?",
+        (message_id, conversation_id)
+    )
+    
+    if not cursor.fetchone():
+        conn.close()
+        return False
+    
+    # Update the message content
+    cursor.execute(
+        "UPDATE messages SET content = ? WHERE id = ?",
+        (new_content, message_id)
+    )
+    
+    # Update the conversation's updated_at timestamp
+    timestamp = datetime.datetime.now().isoformat()
+    cursor.execute(
+        "UPDATE conversations SET updated_at = ? WHERE id = ?",
+        (timestamp, conversation_id)
+    )
+    
+    conn.commit()
+    conn.close()
+    
+    return True
+
 # Initialize the database when the module is imported
 init_db() 

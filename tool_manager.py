@@ -35,15 +35,45 @@ def load_dynamic_tools() -> dict:
         # NOTE: This is still risky. Ideally, generated code shouldn't need unexpected imports.
         # Consider making required imports explicit in the generated code string itself.
         shared_globals = {'os': os, 'yaml': yaml, '__builtins__': __builtins__} 
-        # Add other commonly needed modules if necessary, e.g., requests, json
-        try:
-            import requests
-            shared_globals['requests'] = requests
-        except ImportError: pass
-        try:
-            import json
-            shared_globals['json'] = json
-        except ImportError: pass
+        
+        # Add commonly needed modules to shared_globals
+        modules_to_import = [
+            ('requests', 'requests'),
+            ('json', 'json'),
+            ('datetime', 'datetime'),
+            ('time', 'time'),
+            ('random', 'random'),
+            ('re', 're'),
+            ('sys', 'sys'),
+            ('math', 'math'),
+            ('pathlib', 'Path'),
+            ('urllib.parse', 'parse'),
+            ('urllib.request', 'request'),
+            ('urllib.error', 'error'),
+            ('collections', 'defaultdict'),
+            ('collections', 'Counter'),
+            ('collections', 'deque'),
+            ('PyPDF2', 'PdfReader'),
+        ]
+        
+        for module_name, import_name in modules_to_import:
+            try:
+                if '.' in module_name:
+                    # For submodules like urllib.parse
+                    main_module, sub_module = module_name.split('.', 1)
+                    module = __import__(main_module, fromlist=[sub_module])
+                    sub_mod = getattr(module, sub_module)
+                    shared_globals[import_name] = sub_mod
+                else:
+                    # For regular modules
+                    module = __import__(module_name)
+                    shared_globals[module_name] = module
+                    
+                    # Special case for collections to import specific classes
+                    if module_name == 'collections' and import_name != 'collections':
+                        shared_globals[import_name] = getattr(module, import_name)
+            except (ImportError, AttributeError) as e:
+                print(f"Note: Could not import {module_name} for dynamic tools: {e}")
 
 
         for tool_entry in persisted_tools:
@@ -94,6 +124,15 @@ def save_dynamic_tool(new_tool_names: list, generated_tool_code_str: str):
     if not generated_tool_code_str or not new_tool_names:
         print("Info (Tool Manager): Tool code or names are empty, not saving to persistent registry.")
         return
+
+    # Add a warning message about imports
+    print("IMPORTANT: Make sure your tool code includes ALL necessary imports explicitly.")
+    print("           Tools should be self-contained to work properly after page reloads.")
+    
+    # Check if the code contains import statements
+    if not any(line.strip().startswith('import ') or line.strip().startswith('from ') 
+               for line in generated_tool_code_str.split('\n')):
+        print("WARNING: No import statements detected in tool code. This may cause issues after page reload.")
 
     new_entry = {
         "tool_names": new_tool_names,
@@ -305,3 +344,89 @@ def refactor_tool_registry():
     except Exception as e:
         print(f"Error (Tool Manager): Unexpected error during tool refactoring: {e}")
         print(traceback.format_exc()) 
+
+def fix_tool_imports(tool_name=None, add_imports=None):
+    """
+    Adds missing imports to existing tools in the registry.
+    
+    Args:
+        tool_name (str, optional): Specific tool name to fix. If None, fixes all tools.
+        add_imports (list, optional): List of import statements to add. If None, adds common imports.
+    
+    Returns:
+        int: Number of tools updated
+    """
+    if not os.path.exists(persistent_tool_registry_path):
+        print(f"Warning (Tool Manager): Persistent tool registry '{persistent_tool_registry_path}' not found.")
+        return 0
+    
+    # Default common imports to add if not specified
+    if add_imports is None:
+        add_imports = [
+            "import os",
+            "import json",
+            "import requests",
+            "import datetime",
+            "import time",
+            "import re",
+            "import random"
+        ]
+    
+    try:
+        # Load the current registry
+        with open(persistent_tool_registry_path, 'r') as f:
+            all_persisted_tools = yaml.safe_load(f)
+        
+        if not isinstance(all_persisted_tools, list):
+            print(f"Warning (Tool Manager): Registry content is not a list. Cannot fix imports.")
+            return 0
+        
+        updated_count = 0
+        
+        # Process each tool entry
+        for tool_entry in all_persisted_tools:
+            if not isinstance(tool_entry, dict) or 'tool_names' not in tool_entry or 'code' not in tool_entry:
+                continue
+            
+            # Skip if we're targeting a specific tool and this isn't it
+            if tool_name and tool_name not in tool_entry['tool_names']:
+                continue
+            
+            code = tool_entry['code']
+            code_lines = code.split('\n')
+            
+            # Find existing imports
+            existing_imports = []
+            for line in code_lines:
+                line = line.strip()
+                if line.startswith('import ') or line.startswith('from '):
+                    existing_imports.append(line)
+            
+            # Determine which imports to add
+            imports_to_add = []
+            for imp in add_imports:
+                # Check if this import or a similar one already exists
+                if not any(existing_imp.startswith(imp.split()[0]) for existing_imp in existing_imports):
+                    imports_to_add.append(imp)
+            
+            if imports_to_add:
+                # Add imports at the beginning of the code
+                new_code = '\n'.join(imports_to_add) + '\n\n' + code
+                tool_entry['code'] = new_code
+                updated_count += 1
+                print(f"Added imports to tool(s): {tool_entry['tool_names']}")
+        
+        # Save the updated registry if changes were made
+        if updated_count > 0:
+            with open(persistent_tool_registry_path, 'w') as f:
+                yaml.dump(all_persisted_tools, f, sort_keys=False, indent=2, default_flow_style=False)
+            print(f"(Tool Manager) Successfully updated imports for {updated_count} tool entries.")
+        else:
+            print("(Tool Manager) No tools needed import updates.")
+        
+        return updated_count
+    
+    except Exception as e:
+        print(f"Error fixing imports: {e}")
+        print(traceback.format_exc())
+        return 0 

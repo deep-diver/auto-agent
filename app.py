@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, Response, session
+from flask import Flask, render_template, request, jsonify, Response, session, send_file
 import os
 import main as agent_core # Assuming main.py can be imported and its core logic refactored
 import json # For formatting SSE data if it's complex, though we'll use strings for now
@@ -8,10 +8,41 @@ import yaml # Add yaml import
 import tool_manager # Import the tool_manager module
 import ast # For parsing Python code to get docstrings
 import db_manager # Import the database manager for chat history
+import re # Add re for regular expressions
+import mimetypes # For guessing MIME types
+import urllib.parse # For URL encoding/decoding paths
+import functools # For caching
 
 # Explicitly set static folder
 app = Flask(__name__, static_folder='static')
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))  # For session management
+
+# Define the workspace root for security checks when serving images.
+# Assumes app.py is run from the workspace root.
+WORKSPACE_ROOT = os.path.abspath(os.getcwd())
+# Fallback for some environments where getcwd might be different than script dir
+if not os.path.commonpath([WORKSPACE_ROOT, os.path.abspath(os.path.dirname(__file__))]) == WORKSPACE_ROOT:
+    # If __file__ is in a subdirectory of getcwd, or vice-versa, this might be complex.
+    # For simplicity, we'll prefer dirname if app.py is likely the entry point at root.
+    # This needs careful consideration based on deployment.
+    # For now, let's assume getcwd() is generally correct for this project structure.
+    pass
+
+# Cache for image paths that have been processed
+# Key: original image path, Value: servable URL
+IMAGE_PATH_CACHE = {}
+
+# Define regex patterns for image detection - improved for OS agnostic paths
+# This pattern handles both Windows and Unix paths with various image extensions
+IMAGE_PATH_PATTERN = re.compile(r'(?:^|\s)([a-zA-Z]:[/\\][^:*?"<>|\r\n]+\.(png|jpe?g|gif|bmp|webp|svg|ico)|/[^:*?"<>|\r\n]+\.(png|jpe?g|gif|bmp|webp|svg|ico)|\.{0,2}/[^:*?"<>|\r\n]+\.(png|jpe?g|gif|bmp|webp|svg|ico))', re.IGNORECASE)
+
+# Add a specialized pattern for screenshot paths which often end with a period
+SCREENSHOT_PATH_PATTERN = re.compile(r'([a-zA-Z]:\\(?:[^:*?"<>|\r\n\\]+\\)*[^:*?"<>|\r\n\\]+\.(png|jpe?g|gif|bmp|webp|svg|ico))\.?', re.IGNORECASE)
+
+# Add a specific pattern for "Screenshot saved to" messages
+SCREENSHOT_SAVED_PATTERN = re.compile(r'Screenshot saved to ([a-zA-Z]:\\(?:[^:*?"<>|\r\n\\]+\\)*[^:*?"<>|\r\n\\]+\.(png|jpe?g|gif|bmp|webp|svg|ico))\.?', re.IGNORECASE)
+
+URL_PATTERN = re.compile(r'\b(https?://[^\s()<>]+(?:\([^\s()<>]+\)|[^\s`!()\[\]{};:\'".,<>?«»""'']))', re.IGNORECASE)
 
 def get_first_docstring_line_from_code(code_str: str) -> str | None:
     """Helper to extract the first line of a docstring from a code string."""
@@ -45,6 +76,216 @@ else:
     # For now, just confirm it's set.
     print("Flask App: GOOGLE_API_KEY is set in the environment. Configuration will be handled by agent_core.")
 
+def process_message_for_images(message_text):
+    """
+    Process a message to find local image paths and convert them to server URLs.
+    
+    Args:
+        message_text (str): The message text to process
+        
+    Returns:
+        tuple: (processed_message, found_images)
+            - processed_message: Message with image paths converted to markdown image syntax
+            - found_images: List of dictionaries with original_path and server_url
+    """
+    if not message_text:
+        return message_text, []
+    
+    print(f"[DEBUG] Processing message for images: {message_text}")
+    
+    found_images = []
+    processed_message = message_text
+    
+    # First check for URLs - these don't need processing
+    url_matches = list(URL_PATTERN.finditer(message_text))
+    url_positions = [(m.start(), m.end(), m.group(1)) for m in url_matches]
+    
+    if url_matches:
+        print(f"[DEBUG] Found {len(url_matches)} URLs in message")
+        for i, match in enumerate(url_matches):
+            print(f"[DEBUG] URL {i+1}: {match.group(1)}")
+    
+    # Check for "Screenshot saved to" messages first
+    screenshot_saved_match = SCREENSHOT_SAVED_PATTERN.search(message_text)
+    if screenshot_saved_match:
+        print(f"[DEBUG] Found 'Screenshot saved to' message")
+        original_path = screenshot_saved_match.group(1)
+        print(f"[DEBUG] Extracted path: {original_path}")
+        
+        # Process this path
+        if original_path.endswith('.'):
+            original_path = original_path[:-1]
+            
+        # Check cache first
+        if original_path in IMAGE_PATH_CACHE:
+            server_url = IMAGE_PATH_CACHE[original_path]
+        else:
+            # Normalize and get absolute path
+            normalized_path = os.path.normpath(original_path)
+            abs_path = normalized_path if os.path.isabs(normalized_path) else os.path.abspath(os.path.join(WORKSPACE_ROOT, normalized_path))
+            
+            # Check if file exists and is within workspace
+            if os.path.exists(abs_path) and os.path.isfile(abs_path) and abs_path.startswith(WORKSPACE_ROOT):
+                # Convert to forward slashes for web URLs
+                web_path = abs_path.replace(os.sep, '/')
+                # URL encode the path
+                encoded_path = urllib.parse.quote(web_path)
+                server_url = f"/serve_image/{encoded_path}"
+                
+                # Cache the result
+                IMAGE_PATH_CACHE[original_path] = server_url
+                
+                # Add to found images list
+                found_images.append({
+                    'original_path': original_path,
+                    'server_url': server_url
+                })
+                
+                # For screenshot messages, add the image at the top
+                processed_message = f"<img src=\"{server_url}\" alt=\"Image\" style=\"max-width: 100%; max-height: 400px; object-fit: contain;\" onclick=\"showImageModal('{server_url}')\" class=\"clickable-image\">\n\n{processed_message}"
+                print(f"[DEBUG] Added styled image at top for screenshot message: {processed_message[:100]}...")
+                
+                return processed_message, found_images
+    
+    # Then look for image paths - but avoid overlapping with URLs
+    # First try with the standard pattern
+    image_matches = list(IMAGE_PATH_PATTERN.finditer(message_text))
+    
+    # If no matches found with standard pattern, try the screenshot pattern
+    if not image_matches:
+        print(f"[DEBUG] No image paths found with standard pattern, trying screenshot pattern")
+        image_matches = list(SCREENSHOT_PATH_PATTERN.finditer(message_text))
+    
+    if image_matches:
+        print(f"[DEBUG] Found {len(image_matches)} potential image paths in message")
+        for i, match in enumerate(image_matches):
+            print(f"[DEBUG] Image path {i+1}: {match.group(1)}")
+    else:
+        print(f"[DEBUG] No image paths found with any pattern")
+        # Let's try a simpler pattern just to see if we can match anything
+        simple_pattern = re.compile(r'([a-zA-Z]:\\[^:*?"<>|\r\n]+\.(png|jpe?g|gif|bmp|webp|svg|ico))', re.IGNORECASE)
+        simple_matches = list(simple_pattern.finditer(message_text))
+        if simple_matches:
+            print(f"[DEBUG] Found {len(simple_matches)} image paths with simpler regex")
+            for i, match in enumerate(simple_matches):
+                print(f"[DEBUG] Simple match {i+1}: {match.group(1)}")
+            # Use these matches instead
+            image_matches = simple_matches
+    
+    for match in image_matches:
+        # Check if this match overlaps with any URL match - if so, skip it
+        match_start, match_end = match.span(1)  # Group 1 contains the path
+        overlaps_with_url = any(
+            url_start <= match_start < url_end or url_start < match_end <= url_end
+            for url_start, url_end, _ in url_positions
+        )
+        
+        if overlaps_with_url:
+            print(f"[DEBUG] Skipping image path that overlaps with URL: {match.group(1)}")
+            continue
+            
+        original_path = match.group(1)
+        print(f"[DEBUG] Processing image path: {original_path}")
+        
+        # Remove trailing period if present (common in sentences)
+        if original_path.endswith('.'):
+            original_path = original_path[:-1]
+            print(f"[DEBUG] Removed trailing period: {original_path}")
+        
+        # Check cache first
+        if original_path in IMAGE_PATH_CACHE:
+            server_url = IMAGE_PATH_CACHE[original_path]
+            print(f"[DEBUG] Found in cache: {original_path} -> {server_url}")
+        else:
+            # Process the path
+            # Normalize the path (OS agnostic)
+            normalized_path = os.path.normpath(original_path)
+            print(f"[DEBUG] Normalized path: {normalized_path}")
+            
+            # Get absolute path
+            if os.path.isabs(normalized_path):
+                abs_path = normalized_path
+                print(f"[DEBUG] Path is absolute: {abs_path}")
+            else:
+                # Relative path - resolve against workspace root
+                abs_path = os.path.abspath(os.path.join(WORKSPACE_ROOT, normalized_path))
+                print(f"[DEBUG] Resolved relative path: {abs_path}")
+                
+            # Check if file exists and is within workspace
+            file_exists = os.path.exists(abs_path)
+            is_file = os.path.isfile(abs_path)
+            in_workspace = abs_path.startswith(WORKSPACE_ROOT)
+            
+            print(f"[DEBUG] File exists: {file_exists}, Is file: {is_file}, In workspace: {in_workspace}")
+            
+            if file_exists and is_file and in_workspace:
+                # Convert to forward slashes for web URLs
+                web_path = abs_path.replace(os.sep, '/')
+                # URL encode the path
+                encoded_path = urllib.parse.quote(web_path)
+                server_url = f"/serve_image/{encoded_path}"
+                
+                print(f"[DEBUG] Created server URL: {server_url}")
+                
+                # Cache the result
+                IMAGE_PATH_CACHE[original_path] = server_url
+            else:
+                # Path doesn't exist or is outside workspace - leave as is
+                print(f"[DEBUG] Skipping path that doesn't exist or is outside workspace: {abs_path}")
+                continue
+        
+        # Add to found images list
+        found_images.append({
+            'original_path': original_path,
+            'server_url': server_url
+        })
+        
+        # For screenshot paths, we want to add the image at the top of the message
+        # rather than replacing the path in-place
+        if SCREENSHOT_PATH_PATTERN.search(original_path):
+            print(f"[DEBUG] Screenshot path detected, adding image at top of message")
+            processed_message = f"<img src=\"{server_url}\" alt=\"Image\" style=\"max-width: 100%; max-height: 400px; object-fit: contain;\" onclick=\"showImageModal('{server_url}')\" class=\"clickable-image\">\n\n{processed_message}"
+            continue
+        
+        # For regular paths, replace in the message with markdown image syntax
+        # We need to be careful with the replacement to maintain the message structure
+        # Add a space before the path if it wasn't at the start of the message
+        prefix = '' if match.start(1) == 0 or message_text[match.start(1)-1].isspace() else ' '
+        markdown_img = f"{prefix}<img src=\"{server_url}\" alt=\"Image\" style=\"max-width: 100%; max-height: 400px; object-fit: contain;\" onclick=\"showImageModal('{server_url}')\" class=\"clickable-image\">"
+        
+        print(f"[DEBUG] Markdown image tag: {markdown_img}")
+        
+        # Calculate positions for replacement
+        if prefix:
+            replace_start = match.start(1) - 1  # Include the character before
+        else:
+            replace_start = match.start(1)
+            
+        replace_end = match.end(1)
+        
+        print(f"[DEBUG] Replacing text from position {replace_start} to {replace_end}")
+        print(f"[DEBUG] Original text segment: '{message_text[replace_start:replace_end]}'")
+        
+        # Perform the replacement
+        processed_message = processed_message[:replace_start] + markdown_img + processed_message[replace_end:]
+        
+        print(f"[DEBUG] Message after replacement: {processed_message}")
+        
+        # Adjust URL positions for subsequent replacements
+        url_positions = [
+            (start + (len(markdown_img) - (replace_end - replace_start)) if start > replace_start else start,
+             end + (len(markdown_img) - (replace_end - replace_start)) if end > replace_start else end,
+             url)
+            for start, end, url in url_positions
+        ]
+    
+    if found_images:
+        print(f"[DEBUG] Processed {len(found_images)} images in message")
+    else:
+        print(f"[DEBUG] No images processed in message")
+        
+    return processed_message, found_images
+
 @app.route('/')
 def index():
     """Serves the main HTML page."""
@@ -69,11 +310,14 @@ def new_conversation():
 @app.route('/send_message') # Changed to GET, message via query param for SSE
 def send_message_sse():
     """Handles user messages and streams logs and final reply via SSE."""
-    user_message = request.args.get('message')
-    if not user_message:
+    user_message_from_request = request.args.get('message')
+    if not user_message_from_request:
         # For SSE, errors ideally should also be streamed if the connection is open,
         # but for a missing message param, a simple HTTP error is fine before streaming starts.
         return jsonify({'error': 'No message provided'}), 400
+    
+    # Process the message to find and convert image paths
+    user_message, found_images = process_message_for_images(user_message_from_request)
     
     # Ensure we have a conversation ID in the session
     if 'conversation_id' not in session:
@@ -84,7 +328,7 @@ def send_message_sse():
     # Store the user message in the database
     db_manager.add_message(
         conversation_id=conversation_id,
-        content=user_message,
+        content=user_message,  # Use the processed message with image markdown
         role='user'
     )
     
@@ -95,7 +339,7 @@ def send_message_sse():
         if title:
             db_manager.update_conversation_title(conversation_id, title)
 
-    print(f"WebUI User Message (for SSE): {user_message}")
+    print(f"WebUI User Message (for SSE): {user_message}")  # This will show the processed message
 
     def generate_sse_stream():
         # The old stream_log_callback is no longer needed here,
@@ -125,8 +369,12 @@ def send_message_sse():
                             
                 elif message_part.startswith("reply: "):
                     reply_content = message_part[7:].strip() # Remove prefix AND trim whitespace
-                    formatted_final_reply = str(reply_content).replace('\n', '\\n')
-                    agent_reply = reply_content
+                    
+                    # Process the agent's reply for any image paths
+                    processed_reply, reply_images = process_message_for_images(reply_content)
+                    
+                    formatted_final_reply = str(processed_reply).replace('\n', '\\n')
+                    agent_reply = processed_reply  # Store the processed reply
                     yield f"event: final_reply\ndata: {formatted_final_reply}\n\n"
                 else:
                     # Should not happen if main.py adheres to the prefix convention
@@ -215,6 +463,24 @@ def delete_specific_conversation(conversation_id):
         session['conversation_id'] = db_manager.create_conversation()
     
     return jsonify({'success': True})
+
+@app.route('/fix_tool_imports', methods=['POST'])
+def fix_tool_imports():
+    """Fix imports for existing tools in the registry."""
+    data = request.json or {}
+    tool_name = data.get('tool_name')  # Optional: specific tool to fix
+    custom_imports = data.get('imports')  # Optional: custom imports to add
+    
+    try:
+        updated_count = tool_manager.fix_tool_imports(tool_name, custom_imports)
+        
+        return jsonify({
+            'success': True,
+            'message': f"Successfully updated imports for {updated_count} tool entries.",
+            'updated_count': updated_count
+        })
+    except Exception as e:
+        return jsonify({'error': f'Error fixing tool imports: {str(e)}'}), 500
 
 @app.route('/delete_dynamic_tool/<tool_name>', methods=['DELETE'])
 def delete_dynamic_tool(tool_name):
@@ -447,6 +713,54 @@ def get_tool_details(tool_name):
     else:
         return jsonify({"error": "Tool not found"}), 404
 
+# New route to serve images from the workspace
+@app.route('/serve_image/<path:encoded_file_path>')
+def serve_image_from_path(encoded_file_path):
+    try:
+        # URL-decode the file path
+        file_path_str = urllib.parse.unquote(encoded_file_path)
+
+        # Security: Prevent directory traversal and ensure the file is within the workspace.
+        # Convert to an absolute path. This resolves '..', etc.
+        # file_path_str is expected to be an absolute path with forward slashes (e.g., "C:/Users/.../img.png")
+        # os.path.abspath will normalize it to OS-specific format (e.g., "C:\Users\...\img.png" on Windows)
+        requested_abs_path = os.path.abspath(file_path_str)
+        
+        app.logger.debug(f"Attempting to serve image. Encoded: '{encoded_file_path}', Decoded: '{file_path_str}', Abs: '{requested_abs_path}', Workspace: '{WORKSPACE_ROOT}'")
+
+        # Check 1: Is the resolved path within the defined WORKSPACE_ROOT?
+        # Use os.path.commonpath to be robust against minor differences like trailing slashes
+        common_path = os.path.commonpath([requested_abs_path, WORKSPACE_ROOT])
+        if common_path != WORKSPACE_ROOT:
+            app.logger.warning(f"Access denied for path: {requested_abs_path}. Not within workspace: {WORKSPACE_ROOT}")
+            return jsonify({'error': 'Access denied to this file path.'}), 403
+
+        # Check 2: Does the file exist and is it a file?
+        if not os.path.exists(requested_abs_path) or not os.path.isfile(requested_abs_path):
+            app.logger.warning(f"File not found or not a file: {requested_abs_path}")
+            return jsonify({'error': 'File not found or is not a regular file.'}), 404
+
+        # Check 3: Is it an image (based on common extensions primarily for an extra check)?
+        # mimetypes.guess_type is the main check for browser compatibility.
+        allowed_image_extensions = ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg', '.ico')
+        if not requested_abs_path.lower().endswith(allowed_image_extensions):
+            app.logger.warning(f"File extension not allowed: {requested_abs_path}")
+            return jsonify({'error': 'File is not an allowed image type based on extension.'}), 400
+
+        mimetype, _ = mimetypes.guess_type(requested_abs_path)
+        if not mimetype or not mimetype.startswith('image/'):
+            app.logger.warning(f"Could not determine image type or not an image MIME type: {requested_abs_path}, Mimetype: {mimetype}")
+            return jsonify({'error': 'Could not determine image type or file is not an image.'}), 400
+            
+        app.logger.info(f"Serving image: {requested_abs_path} with mimetype: {mimetype}")
+        return send_file(requested_abs_path, mimetype=mimetype)
+
+    except Exception as e:
+        app.logger.error(f"Error serving image {encoded_file_path}: {e}")
+        import traceback
+        traceback.print_exc() # Log full traceback to server console
+        return jsonify({'error': f'Server error while trying to serve the image.'}), 500
+
 # Debug route to check if static files are accessible
 @app.route('/check_static')
 def check_static():
@@ -471,6 +785,44 @@ def check_static():
         'assets_folder_exists': os.path.exists(assets_path),
         'files': files_info
     })
+
+# Add a route to process past conversations
+@app.route('/process_conversation_images/<conversation_id>')
+def process_conversation_images(conversation_id):
+    """Process all messages in a conversation to convert image paths to server URLs."""
+    try:
+        conversation = db_manager.get_conversation(conversation_id)
+        if not conversation:
+            return jsonify({'error': 'Conversation not found'}), 404
+            
+        messages = conversation.get('messages', [])
+        updates_made = 0
+        
+        for message in messages:
+            original_content = message.get('content', '')
+            processed_content, found_images = process_message_for_images(original_content)
+            
+            # If changes were made, update the message
+            if processed_content != original_content:
+                # Update the message in the database
+                # Note: You'll need to add this function to db_manager
+                db_manager.update_message_content(
+                    conversation_id=conversation_id,
+                    message_id=message.get('id'),
+                    new_content=processed_content
+                )
+                updates_made += 1
+                
+        return jsonify({
+            'success': True,
+            'conversation_id': conversation_id,
+            'updates_made': updates_made
+        })
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Error processing conversation images: {str(e)}'}), 500
 
 if __name__ == '__main__':
     # Create a templates folder if it doesn't exist

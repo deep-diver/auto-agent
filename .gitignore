@@ -3,3 +3,4 @@
 .api_keys.yaml
 __pycache__
 chat_history.db
+*screenshot*

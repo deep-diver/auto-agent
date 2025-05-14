@@ -1437,6 +1437,66 @@
                 opacity: 1;
             }
         }
+
+        /* Image Modal Styling */
+        .clickable-image {
+            cursor: pointer;
+            transition: transform 0.2s ease;
+        }
+        
+        .clickable-image:hover {
+            transform: scale(1.02);
+        }
+        
+        #imageModal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.85);
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        #imageModal.show {
+            display: flex;
+            opacity: 1;
+        }
+        
+        #modalImage {
+            max-width: 90%;
+            max-height: 90%;
+            object-fit: contain;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 5px 25px rgba(0, 0, 0, 0.5);
+        }
+        
+        #closeModal {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: white;
+            font-size: 24px;
+            background: rgba(0, 0, 0, 0.5);
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            border: none;
+            transition: background-color 0.2s ease;
+        }
+        
+        #closeModal:hover {
+            background-color: rgba(255, 255, 255, 0.2);
+        }
     </style>
 </head>
 <body>
@@ -1553,6 +1613,12 @@
                 <!-- Model options will be dynamically added here -->
             </div>
         </div>
+    </div>
+
+    <!-- Add the image modal HTML at the end of the body -->
+    <div id="imageModal">
+        <img id="modalImage" src="" alt="Full size image">
+        <button id="closeModal">&times;</button>
     </div>
 
     <script>
@@ -1782,6 +1848,19 @@
                 timestampElem.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
                 applySyntaxHighlighting(currentAgentMessageGroup);
+                
+                // Add click handlers for images
+                currentAgentMessageGroup.querySelectorAll('img').forEach(img => {
+                    if (!img.hasAttribute('data-listener-added')) {
+                        img.addEventListener('click', function() {
+                            showImageModal(this.src);
+                        });
+                        img.setAttribute('data-listener-added', 'true');
+                        img.style.cursor = 'pointer';
+                        // Add the clickable-image class for hover effects
+                        img.classList.add('clickable-image');
+                    }
+                });
 
                 // --- Display Used Tools ---
                 const toolsSummaryPrefix = "tools_used_summary: ";
@@ -1923,6 +2002,20 @@
 
             chatbox.appendChild(messageGroup);
             applySyntaxHighlighting(messageGroup);
+            
+            // Add click handlers for images
+            messageGroup.querySelectorAll('img').forEach(img => {
+                if (!img.hasAttribute('data-listener-added')) {
+                    img.addEventListener('click', function() {
+                        showImageModal(this.src);
+                    });
+                    img.setAttribute('data-listener-added', 'true');
+                    img.style.cursor = 'pointer';
+                    // Add the clickable-image class for hover effects
+                    img.classList.add('clickable-image');
+                }
+            });
+            
             chatbox.scrollTop = chatbox.scrollHeight;
             return messageGroup;
         }
@@ -2651,6 +2744,19 @@
                             // Apply syntax highlighting to all code blocks
                             chatbox.querySelectorAll('.message-group').forEach(group => {
                                 applySyntaxHighlighting(group);
+                                
+                                // Add click handlers for images
+                                group.querySelectorAll('img').forEach(img => {
+                                    if (!img.hasAttribute('data-listener-added')) {
+                                        img.addEventListener('click', function() {
+                                            showImageModal(this.src);
+                                        });
+                                        img.setAttribute('data-listener-added', 'true');
+                                        img.style.cursor = 'pointer';
+                                        // Add the clickable-image class for hover effects
+                                        img.classList.add('clickable-image');
+                                    }
+                                });
                             });
                             
                             // Scroll to bottom
@@ -2756,6 +2862,60 @@
                     console.error('Error renaming conversation:', error);
                 });
         }
+
+        // Add the image modal JavaScript right after the modal HTML
+        function showImageModal(imageUrl) {
+            const modal = document.getElementById('imageModal');
+            const modalImg = document.getElementById('modalImage');
+            
+            modalImg.src = imageUrl;
+            modal.classList.add('show');
+            
+            // Prevent scrolling when modal is open
+            document.body.style.overflow = 'hidden';
+        }
+
+        // Close modal when clicking the close button
+        document.getElementById('closeModal').addEventListener('click', function() {
+            document.getElementById('imageModal').classList.remove('show');
+            document.body.style.overflow = 'auto'; // Restore scrolling
+        });
+
+        // Close modal when clicking outside the image
+        document.getElementById('imageModal').addEventListener('click', function(event) {
+            if (event.target === this) {
+                this.classList.remove('show');
+                document.body.style.overflow = 'auto'; // Restore scrolling
+            }
+        });
+
+        // Allow ESC key to close the modal
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape' && document.getElementById('imageModal').classList.contains('show')) {
+                document.getElementById('imageModal').classList.remove('show');
+                document.body.style.overflow = 'auto'; // Restore scrolling
+            }
+        });
+
+        // Configure DOMPurify to allow onclick attributes
+        window.addEventListener('DOMContentLoaded', function() {
+            DOMPurify.setConfig({
+                ADD_ATTR: ['onclick'],
+                ADD_TAGS: ['img']
+            });
+        });
+        
+        // Make showImageModal globally available
+        window.showImageModal = function(imageUrl) {
+            const modal = document.getElementById('imageModal');
+            const modalImg = document.getElementById('modalImage');
+            
+            modalImg.src = imageUrl;
+            modal.classList.add('show');
+            
+            // Prevent scrolling when modal is open
+            document.body.style.overflow = 'hidden';
+        };
     </script>
 </body>
 </html>

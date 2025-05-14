@@ -79,173 +79,380 @@
     \ Missing key: {key_err}\"}\n    except Exception as e:\n        return {\"error\"\
     : f\"An unexpected error occurred: {e}\"}\n"
 - tool_names:
-  - get_text_from_pdf_url
-  code: "import requests\nimport io\nimport os # Standard import, not used for API\
-    \ keys here as this tool doesn't require one from the available list\n\n# Attempt\
-    \ to import PyPDF2. This tool requires PyPDF2 to be installed in the environment.\n\
-    # You can typically install it with: pip install PyPDF2\ntry:\n    from PyPDF2\
-    \ import PdfReader\n    PYPDF2_AVAILABLE = True\nexcept ImportError:\n    PYPDF2_AVAILABLE\
-    \ = False\n\ndef get_text_from_pdf_url(url: str) -> str:\n    \"\"\"\n    Downloads\
-    \ a PDF from a given URL, extracts text from it, and returns the text.\n\n   \
-    \ Args:\n        url: The URL of the PDF file.\n\n    Returns:\n        A string\
-    \ containing the extracted text from the PDF.\n        Returns an error message\
-    \ if downloading or text extraction fails, \n        or if the PyPDF2 library\
-    \ is not available.\n    \"\"\"\n    if not PYPDF2_AVAILABLE:\n        return\
-    \ \"Error: The PyPDF2 library is not installed. Cannot extract text from PDF.\
-    \ Please install it (e.g., 'pip install PyPDF2') and try again.\"\n\n    if not\
-    \ url:\n        return \"Error: No URL provided.\"\n\n    try:\n        # Set\
-    \ a common user-agent to avoid being blocked by some servers\n        headers\
-    \ = {\n            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\
-    \ (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'\n        }\n       \
-    \ # Download the PDF content with a timeout\n        response = requests.get(url,\
-    \ headers=headers, timeout=60) # Timeout in seconds\n        response.raise_for_status()\
-    \  # Raises HTTPError for bad status codes (4XX or 5XX)\n        \n        pdf_bytes\
-    \ = response.content\n        if not pdf_bytes:\n            return \"Error: Downloaded\
-    \ PDF content is empty.\"\n\n        # Extract text from PDF bytes\n        pdf_file\
-    \ = io.BytesIO(pdf_bytes)\n        reader = PdfReader(pdf_file)\n        \n  \
-    \      if not reader.pages: # Check if the PDF contains any pages\n          \
-    \  return \"Warning: The PDF has no pages.\"\n\n        text = \"\"\n        for\
-    \ page_num in range(len(reader.pages)):\n            page = reader.pages[page_num]\n\
-    \            extracted_page_text = page.extract_text()\n            if extracted_page_text:\n\
-    \                text += extracted_page_text + \"\\n\\n\" # Add double newline\
-    \ between pages for better readability\n        \n        text = text.strip()\n\
-    \        if not text:\n            return \"Warning: No text could be extracted\
-    \ from the PDF. The PDF might be image-based, contain no selectable text, or be\
-    \ malformed.\"\n            \n        return text\n\n    except requests.exceptions.HTTPError\
-    \ as http_err:\n        return f\"Error downloading PDF: HTTP error occurred:\
-    \ {http_err} for URL {url}\"\n    except requests.exceptions.ConnectionError as\
-    \ conn_err:\n        return f\"Error downloading PDF: Connection error occurred:\
-    \ {conn_err} for URL {url}\"\n    except requests.exceptions.Timeout as timeout_err:\n\
-    \        return f\"Error downloading PDF: Timeout error occurred: {timeout_err}\
-    \ for URL {url}\"\n    except requests.exceptions.RequestException as req_err:\n\
-    \        return f\"Error downloading PDF: An unexpected error occurred during\
-    \ download: {req_err} for URL {url}\"\n    except Exception as e:\n        # Catch\
-    \ PyPDF2 specific errors (e.g., malformed PDF) or other unexpected issues during\
-    \ PDF processing\n        return f\"Error processing PDF content: {str(e)}. The\
-    \ file at {url} might not be a valid PDF or might be corrupted.\"\n"
+  - get_image_info_from_url
+  code: "import requests\nimport os # Standard import, though not used for API keys\
+    \ in this specific tool\n\ndef get_image_info_from_url(image_url: str):\n    \"\
+    \"\"\n    Fetches basic information about an image from a URL, primarily its content\
+    \ type,\n    to verify if it's an image.\n\n    Args:\n        image_url (str):\
+    \ The URL of the image.\n\n    Returns:\n        dict: A dictionary containing:\n\
+    \              - 'status' (str): 'success' or 'error'.\n              - 'url'\
+    \ (str): The original image_url.\n              - 'content_type' (str, optional):\
+    \ The detected content type if successful and identifiable.\n              - 'message'\
+    \ (str, optional): An error message if status is 'error' or\n                \
+    \                           if content type doesn't indicate an image.\n    \"\
+    \"\"\n    try:\n        # Use HEAD request to get headers without downloading\
+    \ the full image\n        # Set a timeout to prevent indefinite blocking\n   \
+    \     headers = {\n            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64;\
+    \ x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'\n\
+    \        }\n        response = requests.head(image_url, allow_redirects=True,\
+    \ timeout=10, headers=headers)\n        response.raise_for_status()  # Raise HTTPError\
+    \ for bad responses (4xx or 5xx)\n\n        content_type = response.headers.get('Content-Type',\
+    \ '').lower()\n\n        if content_type.startswith('image/'):\n            return\
+    \ {\n                \"status\": \"success\",\n                \"url\": image_url,\n\
+    \                \"content_type\": content_type\n            }\n        else:\n\
+    \            # If Content-Type is not explicitly image/*, try a GET request for\
+    \ a few bytes to check magic numbers\n            # This is a fallback for servers\
+    \ that might not send accurate Content-Type on HEAD\n            try:\n      \
+    \          response_get = requests.get(image_url, stream=True, allow_redirects=True,\
+    \ timeout=10, headers=headers)\n                response_get.raise_for_status()\n\
+    \                content_type_get = response_get.headers.get('Content-Type', '').lower()\n\
+    \                if content_type_get.startswith('image/'):\n                 \
+    \   return {\n                        \"status\": \"success\",\n             \
+    \           \"url\": image_url,\n                        \"content_type\": content_type_get\n\
+    \                    }\n                # Check magic bytes for common image types\
+    \ if content_type is still not definitive\n                # Read first few bytes\n\
+    \                magic_bytes = next(response_get.iter_content(chunk_size=12, decode_unicode=False),\
+    \ b'')\n                if magic_bytes.startswith(b'\\xff\\xd8\\xff'): # JPEG\n\
+    \                    identified_type = 'image/jpeg'\n                elif magic_bytes.startswith(b'\\\
+    x89PNG\\r\\n\\x1a\\n'): # PNG\n                    identified_type = 'image/png'\n\
+    \                elif magic_bytes.startswith(b'GIF87a') or magic_bytes.startswith(b'GIF89a'):\
+    \ # GIF\n                    identified_type = 'image/gif'\n                elif\
+    \ magic_bytes.startswith(b'BM'): # BMP\n                    identified_type =\
+    \ 'image/bmp'\n                elif magic_bytes.startswith(b'RIFF') and magic_bytes[8:12]\
+    \ == b'WEBP': # WebP\n                     identified_type = 'image/webp'\n  \
+    \              else:\n                    identified_type = None\n           \
+    \     \n                response_get.close() # Important to close the stream\n\
+    \n                if identified_type:\n                    return {\n        \
+    \                \"status\": \"success\",\n                        \"url\": image_url,\n\
+    \                        \"content_type\": identified_type # Use identified type\
+    \ over potentially vague header\n                    }\n                else:\n\
+    \                    message = f\"URL does not appear to be a direct image link.\
+    \ Content-Type from HEAD: {content_type if content_type else 'N/A'}. Content-Type\
+    \ from GET: {content_type_get if content_type_get else 'N/A'}. Magic bytes did\
+    \ not match known image types.\"\n                    return {\n             \
+    \           \"status\": \"error\",\n                        \"url\": image_url,\n\
+    \                        \"content_type\": content_type_get if content_type_get\
+    \ else content_type,\n                        \"message\": message\n         \
+    \           }\n            except requests.exceptions.RequestException as e_get:\n\
+    \                 # If GET also fails or has issues, report based on original\
+    \ HEAD or generic error\n                message = f\"Initial HEAD Content-Type:\
+    \ {content_type if content_type else 'Not determined'}. Attempted GET failed:\
+    \ {str(e_get)}.\"\n                if not content_type.startswith('image/'):\n\
+    \                     message = f\"URL Content-Type ('{content_type}') does not\
+    \ indicate an image. Also, a subsequent GET request failed: {str(e_get)}.\"\n\
+    \                return {\n                    \"status\": \"error\",\n      \
+    \              \"url\": image_url,\n                    \"content_type\": content_type\
+    \ if content_type else None,\n                    \"message\": message\n     \
+    \           }\n\n    except requests.exceptions.Timeout:\n        return {\n \
+    \           \"status\": \"error\",\n            \"url\": image_url,\n        \
+    \    \"message\": \"Error fetching image information: The request timed out.\"\
+    \n        }\n    except requests.exceptions.RequestException as e:\n        return\
+    \ {\n            \"status\": \"error\",\n            \"url\": image_url,\n   \
+    \         \"message\": f\"Error fetching image information: {str(e)}\"\n     \
+    \   }\n    except Exception as e: # Catch any other unexpected errors\n      \
+    \  return {\n            \"status\": \"error\",\n            \"url\": image_url,\n\
+    \            \"message\": f\"An unexpected error occurred: {str(e)}\"\n      \
+    \  }\n"
 - tool_names:
-  - check_internet_connection
-  code: "import requests\n\ndef check_internet_connection():\n    \"\"\"\n    Checks\
-    \ for active internet connection by trying to connect to a reliable host.\n\n\
-    \    Returns:\n        dict: A dictionary with \"status\" (\"connected\" or \"\
-    disconnected\")\n              and an optional \"error\" message if disconnected.\n\
-    \    \"\"\"\n    # Using a URL known for its high availability and that returns\
-    \ a 204 No Content,\n    # which is lightweight and ideal for connectivity checks.\n\
-    \    test_url = \"http://www.google.com/generate_204\"\n    timeout_seconds =\
-    \ 5  # Reasonable timeout for a connectivity check\n\n    try:\n        response\
-    \ = requests.get(test_url, timeout=timeout_seconds)\n        # HTTP 204 No Content\
-    \ is a successful response indicating connectivity.\n        # Any 2xx status\
-    \ code would generally mean connection is okay.\n        if 200 <= response.status_code\
-    \ < 300:\n            return {\"status\": \"connected\"}\n        else:\n    \
-    \        # This case is unlikely with generate_204 if the request itself completes,\n\
-    \            # but included for robustness against unexpected server behavior.\n\
-    \            return {\n                \"status\": \"disconnected\",\n       \
-    \         \"error\": f\"Connected to server, but received an unexpected status\
-    \ code: {response.status_code}\"\n            }\n    except requests.exceptions.Timeout:\n\
-    \        return {\n            \"status\": \"disconnected\",\n            \"error\"\
-    : f\"The request to {test_url} timed out after {timeout_seconds} seconds.\"\n\
-    \        }\n    except requests.exceptions.ConnectionError:\n        # This typically\
-    \ means DNS resolution failed or the server couldn't be reached.\n        return\
-    \ {\n            \"status\": \"disconnected\",\n            \"error\": f\"Failed\
-    \ to establish a connection to {test_url}. Please check your network settings\
-    \ (DNS, firewall, cable).\"\n        }\n    except requests.exceptions.RequestException\
-    \ as e:\n        # Catch-all for other issues that might arise from the requests\
-    \ library.\n        return {\n            \"status\": \"disconnected\",\n    \
-    \        \"error\": f\"An unexpected error occurred while checking internet connection:\
-    \ {str(e)}\"\n        }\n"
+  - capture_screenshot
+  code: "import os\nimport time\nfrom typing import Optional\n\n# Note: pyautogui\
+    \ is not a standard library and needs to be installed.\n# e.g., pip install pyautogui\n\
+    # It also has platform-specific dependencies for interacting with the display.\n\
+    # On Linux, it might require `scrot` (sudo apt-get install scrot) for X11 systems,\n\
+    # or integration with desktop environment tools for Wayland (e.g., gnome-screenshot,\
+    \ grim).\n# It may not work in headless environments or with Wayland without specific\
+    \ configurations.\n\ndef capture_screenshot(output_file_path: Optional[str] =\
+    \ None) -> str:\n    \"\"\"\n    Captures a screenshot of the entire screen and\
+    \ saves it to a file using pyautogui.\n\n    Args:\n        output_file_path (Optional[str]):\
+    \ The desired path (including filename and extension, e.g., .png)\n          \
+    \                                 to save the screenshot. If None, saves to 'screenshot_YYYYMMDD-HHMMSS.png'\n\
+    \                                           in the current working directory,\
+    \ then made absolute.\n\n    Returns:\n        str: A message indicating the absolute\
+    \ path to the saved screenshot file if successful,\n             or an error message\
+    \ string if failed.\n    \"\"\"\n    try:\n        import pyautogui\n    except\
+    \ ImportError:\n        return \"Error: The 'pyautogui' library is not installed.\
+    \ Please install it (e.g., 'pip install pyautogui'). This tool cannot function\
+    \ without it.\"\n    except Exception as e: # Catch other potential issues during\
+    \ pyautogui import, e.g. its own dependencies missing or display init issues\n\
+    \        return f\"Error: Failed to import or initialize 'pyautogui'. It might\
+    \ be due to a missing display or other system dependencies. Original error: {e}\"\
+    \n\n    try:\n        final_path: str\n        if output_file_path:\n        \
+    \    # Ensure the directory of the given path exists\n            abs_path = os.path.abspath(output_file_path)\n\
+    \            directory = os.path.dirname(abs_path)\n            if directory:\
+    \ # If directory is not empty (i.e., not just a filename in cwd)\n           \
+    \     if not os.path.exists(directory):\n                    try:\n          \
+    \              os.makedirs(directory, exist_ok=True)\n                    except\
+    \ OSError as e:\n                        return f\"Error: Could not create directory\
+    \ '{directory}'. {e}\"\n            final_path = abs_path\n        else:\n   \
+    \         # Generate a default filename with a timestamp\n            timestamp\
+    \ = time.strftime(\"%Y%m%d-%H%M%S\")\n            filename = f\"screenshot_{timestamp}.png\"\
+    \n            # Save in the current working directory, then get absolute path\n\
+    \            final_path = os.path.abspath(os.path.join(os.getcwd(), filename))\n\
+    \n        # Take screenshot. This is the primary operation that might fail due\
+    \ to environment.\n        screenshot_image = pyautogui.screenshot()\n       \
+    \ screenshot_image.save(final_path)\n        return f\"Screenshot saved successfully\
+    \ to {final_path}\"\n\n    except pyautogui.PyAutoGUIException as e: # Specific\
+    \ exceptions from pyautogui during its operations\n        error_message = (\n\
+    \            f\"Error during screenshot operation with pyautogui: {e}. \"\n  \
+    \          \"This could be due to various reasons including: \"\n            \"\
+    1. Missing OS-level dependencies for pyautogui (e.g., 'scrot' on Linux for X11,\
+    \ or 'gnome-screenshot' or 'grim' for Wayland integration). \"\n            \"\
+    2. Running in an environment where screen capture is not permitted or possible\
+    \ (e.g., headless server, certain virtualized environments, Wayland without proper\
+    \ portal/backend). \"\n            \"3. PyAutoGUI's FailSafeException if the mouse\
+    \ cursor was moved to a screen corner (can be disabled via pyautogui.FAILSAFE\
+    \ = False if necessary, but use with caution). \"\n            \"Please check\
+    \ your environment and pyautogui documentation for troubleshooting.\"\n      \
+    \  )\n        return error_message\n    except RuntimeError as e: # Often related\
+    \ to display server issues not caught by PyAutoGUIException directly\n       \
+    \ if \"Display not found\" in str(e) or \"No X11 DISPLAY variable\" in str(e)\
+    \ or \\\n           \"XDG_RUNTIME_DIR\" in str(e).lower() or \"wayland\" in str(e).lower()\
+    \ or \"Failed to connect to session bus\" in str(e) or \"X server\" in str(e):\n\
+    \             return (f\"Runtime error likely related to display server: {e}.\
+    \ \"\n                     \"PyAutoGUI requires a graphical environment. Ensure\
+    \ it's available and configured \"\n                     \"(e.g., X11 display\
+    \ variable set, or running in a desktop session). \"\n                     \"\
+    This tool may not work in headless environments or some Wayland configurations\
+    \ without specific setup.\")\n        return f\"Runtime error during screenshot:\
+    \ {e}\"\n    except Exception as e:\n        # Catch any other general errors\
+    \ during screenshot capture or file saving\n        return f\"An unexpected error\
+    \ occurred while capturing or saving the screenshot: {e}\""
 - tool_names:
-  - open_application
-  code: "import subprocess\nimport platform\nimport os\n\ndef open_application(application_name:\
-    \ str) -> dict:\n    \"\"\"\n    Attempts to open a specified application on the\
-    \ user's operating system.\n    Supports macOS, Windows, and Linux.\n\n    Args:\n\
-    \        application_name (str): The name of the application to open.\n      \
-    \                          Examples: \"Safari\" (macOS), \"Notepad\" (Windows),\
-    \ \"firefox\" (Linux).\n\n    Returns:\n        dict: A dictionary containing\
-    \ the status and a message.\n              Example: {\"status\": \"success\",\
-    \ \"message\": \"Attempted to open 'Safari' on macOS.\"}\n                   \
-    \    {\"status\": \"error\", \"message\": \"Application 'Safari' not found on\
-    \ macOS.\"}\n    \"\"\"\n    system = platform.system()\n\n    try:\n        if\
-    \ system == \"Darwin\":  # macOS\n            command = [\"open\", \"-a\", application_name]\n\
-    \            # check=False to inspect returncode and stderr manually.\n      \
-    \      # timeout to prevent hanging if the application fails to start in a reasonable\
-    \ time.\n            process = subprocess.run(command, check=False, capture_output=True,\
-    \ text=True, timeout=15)\n            \n            if process.returncode == 0:\n\
-    \                # `open -a` returns 0 if successful, even if app was already\
-    \ open (it brings to front).\n                return {\"status\": \"success\"\
-    , \"message\": f\"Attempted to open application '{application_name}' on macOS.\"\
-    }\n            else:\n                error_message = process.stderr.strip() if\
-    \ process.stderr else f\"Command failed with return code {process.returncode}.\"\
-    \n                if f\"Unable to find application named '{application_name}'\"\
-    \ in error_message:\n                    return {\"status\": \"error\", \"message\"\
-    : f\"Application '{application_name}' not found on macOS.\"}\n               \
-    \ return {\"status\": \"error\", \"message\": f\"Failed to open '{application_name}'\
-    \ on macOS: {error_message}\"}\n\n        elif system == \"Windows\":\n      \
-    \      # os.startfile() is non-blocking and uses the default application for a\
-    \ file type,\n            # or starts an executable.\n            try:\n     \
-    \           os.startfile(application_name)\n                return {\"status\"\
-    : \"success\", \"message\": f\"Attempted to open application '{application_name}'\
-    \ on Windows.\"}\n            except FileNotFoundError:\n                return\
-    \ {\"status\": \"error\", \"message\": f\"Application or file '{application_name}'\
-    \ not found on Windows.\"}\n            except OSError as e: # Catches other errors\
-    \ like permission issues or invalid executable.\n                return {\"status\"\
-    : \"error\", \"message\": f\"Failed to open '{application_name}' on Windows: {str(e)}\"\
-    }\n\n        elif system == \"Linux\":\n            # xdg-open is the standard\
-    \ way to open files/URLs on Linux desktops.\n            command = [\"xdg-open\"\
-    , application_name]\n            try:\n                # check=True raises CalledProcessError\
-    \ for non-zero exit codes.\n                # timeout in case xdg-open hangs or\
-    \ prompts user indefinitely.\n                process = subprocess.run(command,\
-    \ check=True, capture_output=True, text=True, timeout=15)\n                return\
-    \ {\"status\": \"success\", \"message\": f\"Attempted to open application '{application_name}'\
-    \ on Linux.\"}\n            except subprocess.CalledProcessError as e:\n     \
-    \           error_message = e.stderr.strip() if e.stderr else str(e)\n       \
-    \         return {\"status\": \"error\", \"message\": f\"Failed to open '{application_name}'\
-    \ on Linux using xdg-open: {error_message}\"}\n            except FileNotFoundError:\n\
-    \                # This occurs if 'xdg-open' command itself is not found.\n  \
-    \              return {\"status\": \"error\", \"message\": \"Command 'xdg-open'\
-    \ not found on Linux. Cannot open application.\"}\n            except subprocess.TimeoutExpired:\n\
-    \                return {\"status\": \"error\", \"message\": f\"Opening '{application_name}'\
-    \ on Linux with xdg-open timed out. It might be waiting for user input or the\
-    \ application is unresponsive.\"}\n\n        else:\n            return {\"status\"\
-    : \"error\", \"message\": f\"Unsupported operating system: {system}.\"}\n\n  \
-    \  except subprocess.TimeoutExpired:\n         # This specifically catches timeout\
-    \ for macOS `subprocess.run`\n         return {\"status\": \"error\", \"message\"\
-    : f\"Opening '{application_name}' on macOS timed out. The application may be unresponsive\
-    \ or taking too long to start.\"}\n    except Exception as e:\n        # General\
-    \ catch-all for unexpected errors not handled above.\n        return {\"status\"\
-    : \"error\", \"message\": f\"An unexpected error occurred while trying to open\
-    \ '{application_name}': {str(e)}\"}\n"
+  - launch_application
+  code: "import subprocess\nimport platform\n\ndef launch_application(application_name:\
+    \ str) -> str:\n    \"\"\"\n    Attempts to launch the specified application in\
+    \ a non-blocking way.\n\n    Args:\n        application_name (str):\n        \
+    \    - On Windows: The executable name (e.g., \"msedge.exe\", \"notepad.exe\"\
+    ) \n                          or a name known to the 'start' command (e.g., \"\
+    msedge\").\n                          Can also be a path to an executable.\n \
+    \           - On macOS: The application name as known to \"open -a\" \n      \
+    \                  (e.g., \"Safari\", \"Microsoft Edge\", \"TextEdit\").\n   \
+    \         - On Linux: The command name of the application \n                 \
+    \       (e.g., \"firefox\", \"gedit\", \"microsoft-edge\"). \n               \
+    \         The application must be in the system's PATH.\n\n    Returns:\n    \
+    \    str: A message indicating the outcome of the launch attempt.\n    \"\"\"\n\
+    \    system = platform.system()\n    \n    try:\n        if system == \"Windows\"\
+    :\n            # Use 'cmd /c start \"\" program_or_path' to launch applications.\n\
+    \            # The empty string \"\" is a placeholder for the title for the 'start'\
+    \ command.\n            # This allows 'start' to correctly handle paths with spaces\
+    \ in 'application_name'.\n            subprocess.Popen([\"cmd\", \"/c\", \"start\"\
+    , \"\", application_name], shell=False)\n            return f\"Attempting to launch\
+    \ '{application_name}' on Windows.\"\n\n        elif system == \"Darwin\": # macOS\n\
+    \            cmd_list = [\"open\", \"-a\", application_name]\n            subprocess.Popen(cmd_list)\n\
+    \            return f\"Attempting to launch '{application_name}' on macOS.\"\n\
+    \n        elif system == \"Linux\":\n            # Assumes application_name is\
+    \ an executable in PATH.\n            # If application_name were to include arguments,\
+    \ shlex.split() would be needed.\n            # For a single command name (which\
+    \ might contain spaces if the path itself has spaces\n            # and it's correctly\
+    \ referenced or symlinked), [application_name] is correct.\n            cmd_list\
+    \ = [application_name]\n            subprocess.Popen(cmd_list)\n            return\
+    \ f\"Attempting to launch '{application_name}' on Linux.\"\n        else:\n  \
+    \          return f\"Error: Unsupported operating system: {system}.\"\n\n    except\
+    \ FileNotFoundError:\n        # This error is raised if 'cmd' (Windows), 'open'\
+    \ (macOS), or the 'application_name' (Linux) isn't found in PATH.\n        return\
+    \ f\"Error: Command or application executable not found. Ensure it's installed\
+    \ and in system PATH. Application specified: '{application_name}'.\"\n    except\
+    \ Exception as e:\n        return f\"Error launching application '{application_name}':\
+    \ {str(e)}\"\n"
 - tool_names:
-  - get_local_system_specs
-  code: "import platform\nimport psutil\nimport os\n\ndef get_local_system_specs():\n\
-    \    \"\"\"Retrieves information about the local device's operating system, CPU,\
-    \ RAM, and storage.\"\"\"\n    specs = {}\n\n    try:\n        # Operating System\n\
-    \        specs['os_platform'] = platform.system()\n        specs['os_release']\
-    \ = platform.release()\n        specs['os_version'] = platform.version()\n   \
-    \     specs['os_architecture'] = platform.machine()\n\n        # CPU\n       \
-    \ specs['cpu_logical_cores'] = psutil.cpu_count(logical=True)\n        specs['cpu_physical_cores']\
-    \ = psutil.cpu_count(logical=False)\n        try:\n            cpu_freq = psutil.cpu_freq()\n\
-    \            if cpu_freq:\n                specs['cpu_current_frequency_mhz']\
-    \ = cpu_freq.current\n                specs['cpu_max_frequency_mhz'] = cpu_freq.max\n\
-    \                specs['cpu_min_frequency_mhz'] = cpu_freq.min\n        except\
-    \ (AttributeError, NotImplementedError):\n            specs['cpu_frequency_mhz']\
-    \ = 'N/A'\n        specs['cpu_model'] = platform.processor() if platform.processor()\
-    \ else 'N/A'\n\n        # RAM\n        virtual_mem = psutil.virtual_memory()\n\
-    \        specs['ram_total_gb'] = round(virtual_mem.total / (1024**3), 2)\n   \
-    \     specs['ram_available_gb'] = round(virtual_mem.available / (1024**3), 2)\n\
-    \        specs['ram_used_gb'] = round(virtual_mem.used / (1024**3), 2)\n     \
-    \   specs['ram_usage_percent'] = virtual_mem.percent\n\n        # Storage\n  \
-    \      storage_info = []\n        partitions = psutil.disk_partitions()\n    \
-    \    for p in partitions:\n            try:\n                usage = psutil.disk_usage(p.mountpoint)\n\
-    \                storage_info.append({\n                    'device': p.device,\n\
-    \                    'mountpoint': p.mountpoint,\n                    'filesystem_type':\
-    \ p.fstype,\n                    'total_gb': round(usage.total / (1024**3), 2),\n\
-    \                    'used_gb': round(usage.used / (1024**3), 2),\n          \
-    \          'free_gb': round(usage.free / (1024**3), 2),\n                    'usage_percent':\
-    \ usage.percent\n                })\n            except (PermissionError, FileNotFoundError):\n\
-    \                # Skip partitions that can't be accessed (e.g. cd-roms with no\
-    \ media)\n                storage_info.append({\n                    'device':\
-    \ p.device,\n                    'mountpoint': p.mountpoint,\n               \
-    \     'filesystem_type': p.fstype,\n                    'error': 'Could not access\
-    \ usage details.'\n                })\n        specs['storage'] = storage_info\n\
-    \n        return specs\n\n    except Exception as e:\n        return {'error':\
-    \ f'Failed to retrieve system specs: {str(e)}'}\n"
+  - wait_for_seconds
+  code: "import time\nimport os\n\ndef wait_for_seconds(seconds: float) -> str:\n\
+    \    \"\"\"\n    Pauses the execution for a specified number of seconds.\n\n \
+    \   Args:\n        seconds (float): The number of seconds to wait. Can be a fraction.\n\
+    \n    Returns:\n        str: A message indicating the wait is complete or an error\
+    \ message.\n    \"\"\"\n    if not isinstance(seconds, (int, float)):\n      \
+    \  return \"Error: 'seconds' argument must be a number (integer or float).\"\n\
+    \    if seconds < 0:\n        return \"Error: 'seconds' argument must be non-negative.\"\
+    \n    \n    try:\n        time.sleep(seconds)\n        return f\"Successfully\
+    \ waited for {seconds} second(s).\"\n    except Exception as e:\n        return\
+    \ f\"An error occurred while waiting: {str(e)}\""
+- tool_names:
+  - fetch_webpage_content
+  code: "import requests\nimport os\n\ndef fetch_webpage_content(url: str) -> str:\n\
+    \    \"\"\"\n    Fetches the HTML content of a given URL.\n\n    Args:\n     \
+    \   url: The URL of the webpage to fetch.\n\n    Returns:\n        The HTML content\
+    \ as a string, or an error message if fetching fails.\n    \"\"\"\n    if not\
+    \ url.startswith('http://') and not url.startswith('https://'):\n        return\
+    \ \"Error: Invalid URL. URL must start with 'http://' or 'https://'.\"\n    try:\n\
+    \        headers = {\n            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0;\
+    \ Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',\n\
+    \            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',\n\
+    \            'Accept-Language': 'en-US,en;q=0.5',\n            'DNT': '1', # Do\
+    \ Not Track Request Header\n            'Upgrade-Insecure-Requests': '1'\n   \
+    \     }\n        response = requests.get(url, headers=headers, timeout=15) # Increased\
+    \ timeout\n        response.raise_for_status()  # Raise an exception for HTTP\
+    \ errors (4xx or 5xx)\n        return response.text\n    except requests.exceptions.HTTPError\
+    \ as http_err:\n        return f\"HTTP error occurred: {http_err} - Status Code:\
+    \ {response.status_code if 'response' in locals() else 'N/A'}\"\n    except requests.exceptions.ConnectionError\
+    \ as conn_err:\n        return f\"Connection error occurred: {conn_err}\"\n  \
+    \  except requests.exceptions.Timeout as timeout_err:\n        return f\"Timeout\
+    \ error occurred while trying to fetch {url}: {timeout_err}\"\n    except requests.exceptions.RequestException\
+    \ as req_err:\n        return f\"An error occurred during the request for {url}:\
+    \ {req_err}\"\n    except Exception as e:\n        return f\"An unexpected error\
+    \ occurred while fetching {url}: {e}\""
+- tool_names:
+  - extract_items_with_date_from_html
+  code: "import os\nfrom bs4 import BeautifulSoup\nfrom datetime import datetime\n\
+    \ndef extract_items_with_date_from_html(html_content: str, target_date_str: str,\
+    \ item_selector: str, title_selector_within_item: str, date_selector_within_item:\
+    \ str, link_selector_within_item: str = None, date_attribute: str = None, date_format_in_html_text:\
+    \ str = None):\n    \"\"\"\n    Extracts items with titles, dates, and optional\
+    \ links from HTML content, \n    filtering them by a target date. \n\n    Args:\n\
+    \        html_content (str): The HTML content as a string.\n        target_date_str\
+    \ (str): The target date string to filter by (e.g., \"YYYY-MM-DD\" or \"YYYY/MM/DD\"\
+    ).\n        item_selector (str): CSS selector for the container of each item (e.g.,\
+    \ 'article.paper').\n        title_selector_within_item (str): CSS selector for\
+    \ the title element, relative to the item container.\n        date_selector_within_item\
+    \ (str): CSS selector for the date element, relative to the item container.\n\
+    \        link_selector_within_item (str, optional): CSS selector for the link\
+    \ element (e.g., an <a> tag),\n                                              \
+    \   relative to the item container. Defaults to None.\n        date_attribute\
+    \ (str, optional): If the date is in an attribute of the date_element (e.g., 'datetime'\
+    \ \n                                      for <time datetime=\"...\">). If None,\
+    \ tool tries to parse text content.\n                                      Defaults\
+    \ to None.\n        date_format_in_html_text (str, optional): strptime format\
+    \ string if parsing date from text content of \n                             \
+    \                   the date_element. Required if date_attribute is None and date\
+    \ is not ISO.\n                                                Defaults to None.\n\
+    \n    Returns:\n        list: A list of dictionaries, where each dictionary contains\
+    \ 'title', 'extracted_date', \n              and 'link' (if found) for items matching\
+    \ the target date. \n              Returns an empty list if no items are found\
+    \ or an error occurs.\n    \"\"\"\n    results = []\n    try:\n        # Parse\
+    \ the target date string\n        target_date_obj = None\n        for fmt in ('%Y-%m-%d',\
+    \ '%Y/%m/%d'):\n            try:\n                target_date_obj = datetime.strptime(target_date_str,\
+    \ fmt).date()\n                break\n            except ValueError:\n       \
+    \         continue\n        if not target_date_obj:\n            return {\"error\"\
+    : f\"Invalid target_date_str format: {target_date_str}. Use YYYY-MM-DD or YYYY/MM/DD.\"\
+    }\n\n        soup = BeautifulSoup(html_content, 'html.parser')\n        items\
+    \ = soup.select(item_selector)\n\n        if not items:\n            return []\
+    \ # No items found matching the item_selector\n\n        for item in items:\n\
+    \            title_element = item.select_one(title_selector_within_item)\n   \
+    \         title = title_element.get_text(strip=True) if title_element else None\n\
+    \n            date_element = item.select_one(date_selector_within_item)\n    \
+    \        if not date_element or not title:\n                continue\n\n     \
+    \       extracted_date_str = None\n            item_date_obj = None\n\n      \
+    \      if date_attribute:\n                extracted_date_str = date_element.get(date_attribute)\n\
+    \                if extracted_date_str:\n                    # Handle ISO 8601\
+    \ format (e.g., \"2023-05-13T10:00:00Z\")\n                    try:\n        \
+    \                if 'T' in extracted_date_str:\n                             #\
+    \ Take only the date part before 'T'\n                            date_part =\
+    \ extracted_date_str.split('T')[0]\n                            item_date_obj\
+    \ = datetime.strptime(date_part, '%Y-%m-%d').date()\n                        else:\
+    \ # Assume it's already YYYY-MM-DD\n                            item_date_obj\
+    \ = datetime.strptime(extracted_date_str, '%Y-%m-%d').date()\n               \
+    \     except ValueError:\n                        # Could try other ISO parsing\
+    \ if needed, but keeping it simple\n                        pass # item_date_obj\
+    \ remains None\n            elif date_format_in_html_text:\n                extracted_date_str\
+    \ = date_element.get_text(strip=True)\n                try:\n                \
+    \    item_date_obj = datetime.strptime(extracted_date_str, date_format_in_html_text).date()\n\
+    \                except ValueError:\n                    pass # item_date_obj\
+    \ remains None\n            else: # Try to parse common date text if no attribute\
+    \ and no format given (basic attempt)\n                extracted_date_str = date_element.get_text(strip=True)\n\
+    \                try: # Attempt YYYY-MM-DD from text directly\n              \
+    \      item_date_obj = datetime.strptime(extracted_date_str, '%Y-%m-%d').date()\n\
+    \                except ValueError:\n                    pass # Add more common\
+    \ format guesses here if necessary\n            \n            if item_date_obj\
+    \ and item_date_obj == target_date_obj:\n                link = None\n       \
+    \         if link_selector_within_item:\n                    link_element = item.select_one(link_selector_within_item)\n\
+    \                    if link_element and link_element.name == 'a' and 'href' in\
+    \ link_element.attrs:\n                        link = link_element['href']\n \
+    \                   elif link_element: # If not an <a> tag or no href, capture\
+    \ text as fallback or leave None\n                        pass # link remains\
+    \ None\n                \n                results.append({\n                 \
+    \   \"title\": title,\n                    \"extracted_date\": item_date_obj.strftime('%Y-%m-%d'),\n\
+    \                    \"link\": link\n                })\n        \n        return\
+    \ results\n\n    except Exception as e:\n        # Log error e for debugging if\
+    \ necessary\n        return {\"error\": f\"An error occurred during HTML processing:\
+    \ {str(e)}\"}\n"
+- tool_names:
+  - download_and_extract_text_from_pdf
+  code: "import requests\nimport io\nfrom PyPDF2 import PdfReader # Ensure PyPDF2\
+    \ is installed (pip install PyPDF2)\n\ndef download_and_extract_text_from_pdf(pdf_url:\
+    \ str) -> str:\n    \"\"\"\n    Downloads a PDF from a given URL and extracts\
+    \ text content from it.\n\n    Args:\n        pdf_url: The URL of the PDF file.\n\
+    \n    Returns:\n        The extracted text content from the PDF.\n        Returns\
+    \ an error message string if any issue occurs (e.g., download error, \n      \
+    \  not a PDF, encrypted PDF, no text extractable).\n    \"\"\"\n    if not isinstance(pdf_url,\
+    \ str) or not pdf_url.startswith(('http://', 'https://')):\n        return \"\
+    Error: Invalid URL format. URL must be a string starting with http:// or https://.\"\
+    \n\n    headers = {\n        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64;\
+    \ x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'\n\
+    \    }\n\n    try:\n        response = requests.get(pdf_url, headers=headers,\
+    \ timeout=30, stream=False) # stream=False to use response.content\n        response.raise_for_status()\
+    \  # Raise an exception for HTTP errors (4xx or 5xx)\n\n        content_type =\
+    \ response.headers.get('Content-Type', '').lower()\n        if 'application/pdf'\
+    \ not in content_type:\n            return f\"Error: URL does not point to a PDF\
+    \ file. Content-Type: {content_type}. URL: {pdf_url}\"\n\n        pdf_file_bytes\
+    \ = response.content\n        if not pdf_file_bytes:\n             return f\"\
+    Error: Downloaded PDF from {pdf_url} is empty.\"\n\n        pdf_file_obj = io.BytesIO(pdf_file_bytes)\n\
+    \        \n        try:\n            pdf_reader = PdfReader(pdf_file_obj)\n  \
+    \      except Exception as e:\n            # PyPDF2 can raise various errors for\
+    \ corrupted/encrypted/unsupported PDFs\n            if 'encrypted' in str(e).lower()\
+    \ or 'password' in str(e).lower():\n                 return f\"Error: PDF from\
+    \ {pdf_url} is encrypted or password-protected and cannot be opened. Original\
+    \ error: {str(e)}\"\n            return f\"Error: Could not read PDF structure\
+    \ from {pdf_url}. The file might be corrupted or not a standard PDF. Original\
+    \ error: {str(e)}\"\n\n        if pdf_reader.is_encrypted:\n            # Some\
+    \ PDFs are marked as encrypted but might be readable with a blank password (default\
+    \ for PyPDF2)\n            # If PdfReader opened it, it means it was either not\
+    \ encrypted or decrypted with blank password.\n            # If it's truly encrypted\
+    \ with a non-blank password, PdfReader(pdf_file_obj) would have likely failed.\n\
+    \            # This is a fallback check in case it opened but extract_text fails\
+    \ due to encryption issues.\n            pass # Proceed to try extracting text\n\
+    \n        text = \"\"\n        for page_num in range(len(pdf_reader.pages)):\n\
+    \            try:\n                page = pdf_reader.pages[page_num]\n       \
+    \         page_text = page.extract_text()\n                if page_text:\n   \
+    \                 text += page_text + \"\\n\"\n            except Exception as\
+    \ e:\n                # Log page-specific extraction error if needed, but continue\
+    \ for other pages\n                text += f\"[Error extracting text from page\
+    \ {page_num + 1}: {str(e)}]\\n\"\n        \n        if not text.strip():\n   \
+    \         return f\"Error: No text could be extracted from the PDF at {pdf_url}.\
+    \ The PDF might primarily contain images of text, have a non-standard text encoding,\
+    \ or be too complex.\"\n\n        return text.strip()\n\n    except requests.exceptions.Timeout:\n\
+    \        return f\"Error: Request timed out while trying to download PDF from\
+    \ {pdf_url}.\"\n    except requests.exceptions.HTTPError as e:\n        return\
+    \ f\"Error: HTTP error {e.response.status_code} while downloading PDF from {pdf_url}.\
+    \ Message: {e.response.text[:200]}\"\n    except requests.exceptions.RequestException\
+    \ as e:\n        return f\"Error: Could not download PDF from URL {pdf_url}. {str(e)}\"\
+    \n    except Exception as e:\n        return f\"Error: An unexpected error occurred\
+    \ while processing the PDF from {pdf_url}. {str(e)}\""
+- tool_names:
+  - open_url_in_default_browser
+  code: "import webbrowser\nimport platform\nimport subprocess\n\ndef open_url_in_default_browser(url:\
+    \ str) -> str:\n    \"\"\"\n    Opens the given URL in the default web browser.\n\
+    \n    Args:\n        url (str): The URL to open. It should be a fully qualified\
+    \ URL,\n                   including the scheme (e.g., \"http://example.com\"\
+    \ or \"https://example.com\").\n\n    Returns:\n        str: A message indicating\
+    \ success or failure.\n    \"\"\"\n    if not isinstance(url, str):\n        return\
+    \ \"Error: URL must be a string.\"\n    if not (url.startswith(\"http://\") or\
+    \ url.startswith(\"https://\")):\n        return \"Error: URL must be fully qualified\
+    \ and start with 'http://' or 'https://'.\"\n\n    try:\n        # Attempt to\
+    \ open in a new tab if possible, and bring the browser to the front.\n       \
+    \ if webbrowser.open(url, new=2, autoraise=True):\n            return f\"Successfully\
+    \ launched default web browser to open URL: {url}\"\n        else:\n         \
+    \   # webbrowser.open returning False can mean no browser was found or an issue\
+    \ occurred.\n            # On Linux, xdg-open is often more reliable if webbrowser.get()\
+    \ fails or if no\n            # 'BROWSER' env var is set and Python's internal\
+    \ list is insufficient.\n            system_name = platform.system()\n       \
+    \     if system_name == \"Linux\":\n                try:\n                   \
+    \ # Using subprocess.run to attempt opening with xdg-open\n                  \
+    \  # check=True will raise CalledProcessError if xdg-open returns non-zero.\n\
+    \                    subprocess.run(['xdg-open', url], check=True, stdout=subprocess.DEVNULL,\
+    \ stderr=subprocess.DEVNULL)\n                    return f\"Successfully launched\
+    \ default web browser (using xdg-open) to open URL: {url}\"\n                except\
+    \ FileNotFoundError:\n                    return \"Error: Could not open URL.\
+    \ 'xdg-open' command not found. Please ensure it is installed and in your PATH.\"\
+    \n                except subprocess.CalledProcessError as e_xdg:\n           \
+    \         return f\"Error: 'xdg-open' failed to open URL {url}. Exit code: {e_xdg.returncode}.\
+    \ Error: {e_xdg.stderr if e_xdg.stderr else 'N/A'}\"\n                except Exception\
+    \ as e_cmd: # Catch other potential errors from subprocess.run\n             \
+    \       return f\"Error: An unexpected error occurred while trying to use xdg-open\
+    \ for URL {url}: {e_cmd}\"\n            \n            # If not Linux or if the\
+    \ Linux specific xdg-open attempt failed within this 'else' block.\n         \
+    \   return f\"Error: Could not open URL {url}. webbrowser.open() returned False.\
+    \ This might mean no default browser is configured or an error occurred.\"\n\n\
+    \    except webbrowser.Error as e_wb:\n        return f\"Error: A problem occurred\
+    \ with the webbrowser module while trying to open URL {url}: {e_wb}\"\n    except\
+    \ Exception as e_general:\n        # Catch any other unexpected exceptions\n \
+    \       return f\"Error: An unexpected error occurred while trying to open URL\
+    \ {url}: {e_general}\"\n"
