@@ -34,15 +34,22 @@ IMAGE_PATH_CACHE = {}
 
 # Define regex patterns for image detection - improved for OS agnostic paths
 # This pattern handles both Windows and Unix paths with various image extensions
-IMAGE_PATH_PATTERN = re.compile(r'(?:^|\s)([a-zA-Z]:[/\\][^:*?"<>|\r\n]+\.(png|jpe?g|gif|bmp|webp|svg|ico)|/[^:*?"<>|\r\n]+\.(png|jpe?g|gif|bmp|webp|svg|ico)|\.{0,2}/[^:*?"<>|\r\n]+\.(png|jpe?g|gif|bmp|webp|svg|ico))', re.IGNORECASE)
+IMAGE_PATH_PATTERN = re.compile(r'(?:^|\s)([a-zA-Z]:[/\][^:*?"<>|\r\n]+\.(png|jpe?g|gif|bmp|webp|svg|ico)|/[^:*?"<>|\r\n]+\.(png|jpe?g|gif|bmp|webp|svg|ico)|\.{0,2}/[^:*?"<>|\r\n]+\.(png|jpe?g|gif|bmp|webp|svg|ico))', re.IGNORECASE)
 
 # Add a specialized pattern for screenshot paths which often end with a period
-SCREENSHOT_PATH_PATTERN = re.compile(r'([a-zA-Z]:\\(?:[^:*?"<>|\r\n\\]+\\)*[^:*?"<>|\r\n\\]+\.(png|jpe?g|gif|bmp|webp|svg|ico))\.?', re.IGNORECASE)
+# This was Windows-specific, let's make it more OS-agnostic as well, or rely on the improved SCREENSHOT_SAVED_PATTERN
+# For now, keeping it to see if it's still hit after SCREENSHOT_SAVED_PATTERN is improved.
+# A more OS-agnostic version could be:
+# SCREENSHOT_PATH_PATTERN = re.compile(r'((?:[a-zA-Z]:[/\]|/|\.{0,2}/)[^:*?"<>|\r\n]+\.(png|jpe?g|gif|bmp|webp|svg|ico))\.?', re.IGNORECASE)
+SCREENSHOT_PATH_PATTERN = re.compile(r'((?:[a-zA-Z]:[/\][^:*?"<>|\r\n]+|/[^:*?"<>|\r\n]+|\.{0,2}/[^:*?"<>|\r\n]+)\.(?:png|jpe?g|gif|bmp|webp|svg|ico))\.?', re.IGNORECASE)
 
-# Add a specific pattern for "Screenshot saved to" messages
-SCREENSHOT_SAVED_PATTERN = re.compile(r'Screenshot saved to ([a-zA-Z]:\\(?:[^:*?"<>|\r\n\\]+\\)*[^:*?"<>|\r\n\\]+\.(png|jpe?g|gif|bmp|webp|svg|ico))\.?', re.IGNORECASE)
+# Add a specific pattern for "Screenshot saved to" messages - Making this OS Agnostic
+SCREENSHOT_SAVED_PATTERN = re.compile(r'Screenshot saved successfully to ((?:[a-zA-Z]:[/\][^:*?"<>|\r\n]+|/[^:*?"<>|\r\n]+|\.{0,2}/[^:*?"<>|\r\n]+)\.(png|jpe?g|gif|bmp|webp|svg|ico))\.?', re.IGNORECASE)
 
-URL_PATTERN = re.compile(r'\b(https?://[^\s()<>]+(?:\([^\s()<>]+\)|[^\s`!()\[\]{};:\'".,<>?«»""'']))', re.IGNORECASE)
+URL_PATTERN = re.compile(
+    r'\b(https?://[^\s()<>]+(?:\([^\s()<>]+\)|[^\s`!()\[\]{};:\'".,<>?«»"\'"])+)',
+    re.IGNORECASE
+)
 
 def get_first_docstring_line_from_code(code_str: str) -> str | None:
     """Helper to extract the first line of a docstring from a code string."""
@@ -129,7 +136,7 @@ def process_message_for_images(message_text):
                 # Convert to forward slashes for web URLs
                 web_path = abs_path.replace(os.sep, '/')
                 # URL encode the path
-                encoded_path = urllib.parse.quote(web_path)
+                encoded_path = urllib.parse.quote(web_path, safe='')
                 server_url = f"/serve_image/{encoded_path}"
                 
                 # Cache the result
@@ -222,7 +229,7 @@ def process_message_for_images(message_text):
                 # Convert to forward slashes for web URLs
                 web_path = abs_path.replace(os.sep, '/')
                 # URL encode the path
-                encoded_path = urllib.parse.quote(web_path)
+                encoded_path = urllib.parse.quote(web_path, safe='')
                 server_url = f"/serve_image/{encoded_path}"
                 
                 print(f"[DEBUG] Created server URL: {server_url}")
@@ -719,14 +726,22 @@ def serve_image_from_path(encoded_file_path):
     try:
         # URL-decode the file path
         file_path_str = urllib.parse.unquote(encoded_file_path)
+        app.logger.debug(f"serve_image - Raw encoded_file_path: '{encoded_file_path}', Unquoted path_str: '{file_path_str}'")
+
+        # If the unquoted path is not absolute, it's likely a Unix-style absolute path
+        # that had its leading slash stripped by client-side processing (e.g., DOMPurify or browser).
+        # Prepend a slash to reconstruct it.
+        # This specifically targets the observed issue where "/Users/foo" became "Users/foo".
+        if not os.path.isabs(file_path_str) and (file_path_str.startswith('Users/') or file_path_str.startswith('home/') or file_path_str.startswith('var/') or file_path_str.startswith('opt/') or file_path_str.startswith('private/')):
+            file_path_str = "/" + file_path_str
+            app.logger.info(f"serve_image - Prepended leading slash, path is now: '{file_path_str}'")
 
         # Security: Prevent directory traversal and ensure the file is within the workspace.
         # Convert to an absolute path. This resolves '..', etc.
-        # file_path_str is expected to be an absolute path with forward slashes (e.g., "C:/Users/.../img.png")
-        # os.path.abspath will normalize it to OS-specific format (e.g., "C:\Users\...\img.png" on Windows)
+        # If file_path_str is now correctly absolute (e.g. "/Users/..."), os.path.abspath is idempotent.
         requested_abs_path = os.path.abspath(file_path_str)
         
-        app.logger.debug(f"Attempting to serve image. Encoded: '{encoded_file_path}', Decoded: '{file_path_str}', Abs: '{requested_abs_path}', Workspace: '{WORKSPACE_ROOT}'")
+        app.logger.debug(f"Attempting to serve image. Encoded: '{encoded_file_path}', Decoded_final: '{file_path_str}', Abs: '{requested_abs_path}', Workspace: '{WORKSPACE_ROOT}'")
 
         # Check 1: Is the resolved path within the defined WORKSPACE_ROOT?
         # Use os.path.commonpath to be robust against minor differences like trailing slashes

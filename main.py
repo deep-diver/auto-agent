@@ -248,13 +248,24 @@ agent_profiles = {
 }
 
 # --- Dynamic Generation (Prompt + Tool Code + Registry Awareness + API Key Awareness) ---
-def generate_agent_details(user_request: str, predefined_tools_dict: dict, dynamic_tools_registry: dict, api_key_details: dict):
+def generate_agent_details(user_request: str,
+                           predefined_tools_dict: dict,
+                           dynamic_tools_registry: dict,
+                           api_key_details: dict,
+                           previous_tool_code_to_refine: str | None = None,
+                           feedback_for_refinement: str | None = None):
     """
     Generates prompt, identifies needed tools, and potentially generates new tool code.
+    If previous_tool_code_to_refine and feedback_for_refinement are provided,
+    it instructs the LLM to refine the existing tool code.
     Informs LLM about available API keys (name, service, description) in the environment.
     WARNING: Generates executable code - EXTREMELY RISKY.
     """
     print(f"\n--- Generating Agent Details (API Key Aware, Registry Aware, Dynamic Code Risk!) for: '{user_request}' ---")
+    if previous_tool_code_to_refine and feedback_for_refinement:
+        print(f"Attempting to refine previous tool code based on feedback.")
+        print(f"Previous code snippet: {previous_tool_code_to_refine[:200]}..." if previous_tool_code_to_refine else "No previous code.")
+        print(f"Feedback: {feedback_for_refinement[:200]}..." if feedback_for_refinement else "No feedback.")
 
     predefined_tool_descriptions = "\n".join([
         f"- Name: {name}\n  Description: {data['schema']['description']}"
@@ -283,19 +294,86 @@ def generate_agent_details(user_request: str, predefined_tools_dict: dict, dynam
     api_key_listing_for_prompt = "\n".join(api_key_prompt_parts) if api_key_prompt_parts else "(None loaded or details missing)"
 
     # Load the base prompt template from TOML file
-    prompt_template = get_prompt_template("generate_agent_details_prompt")
-    if not prompt_template:
-        print("Error: Could not load prompt template for generate_agent_details. Using a fallback or failing.")
-        # Fallback to a very basic prompt or raise an error
-        # For now, let's return None to indicate failure to generate details
+    # This template should instruct Gemini on the JSON output format.
+    base_prompt_template = get_prompt_template("generate_agent_details_prompt")
+    if not base_prompt_template:
+        print("Error: Could not load prompt template 'generate_agent_details_prompt'. Cannot generate agent details.")
         return None 
 
+    # Add refinement instructions if feedback is provided
+    refinement_instructions = ""
+    if previous_tool_code_to_refine and feedback_for_refinement:
+        refinement_instructions = f"""
+
+--------------------------------------------------------------------------------
+**TASK: REFINE EXISTING TOOL or CREATE NEW TOOL BASED ON FEEDBACK**
+
+You are in a refinement loop. A previous attempt to generate or use a tool has been made.
+Your task is to EITHER refine the Python code of the PREVIOUS tool OR generate Python code for a COMPLETELY NEW tool if the previous approach was misguided.
+Base your decision on the provided feedback.
+
+**Previous Tool Code (Python):**
+```python
+{previous_tool_code_to_refine}
+```
+
+**Feedback on Previous Tool/Attempt:**
+{feedback_for_refinement}
+
+**Instructions for this refinement iteration:**
+1.  Analyze the original user request, the previous tool code, and the feedback.
+2.  If the feedback suggests improving the `Previous Tool Code`, provide the **complete, refined Python code** for the tool in the `generated_tool_code` field of your JSON response. Ensure the refined tool still aims to solve the original user request.
+3.  If the feedback suggests the `Previous Tool Code` was a wrong approach or a new tool is needed, generate Python code for a **new tool** in `generated_tool_code`.
+4.  If the feedback suggests NO tool is needed, or the existing non-dynamic tools are sufficient, leave `generated_tool_code` as an empty string or null, and set `required_new_tool_names` to an empty list.
+5.  Update `generated_prompt` (system prompt for the agent that will use the tool), `required_predefined_tools`, `required_dynamic_tools`, and `required_new_tool_names` according to your new plan.
+6.  Provide `example_dummy_arguments` if you generate or refine a tool.
+7.  Ensure your entire response is a single JSON object.
+--------------------------------------------------------------------------------
+"""
+    elif previous_tool_code_to_refine and not feedback_for_refinement:
+        # This case might indicate a tool was generated, but evaluation failed or didn't give specific feedback.
+        # We might instruct to try re-generating or just note it.
+        refinement_instructions = f"""
+
+--------------------------------------------------------------------------------
+**NOTE: PREVIOUS TOOL EXISTS BUT NO SPECIFIC FEEDBACK**
+
+A tool was generated in a previous iteration:
+```python
+{previous_tool_code_to_refine}
+```
+However, no specific feedback for improvement was provided.
+Re-evaluate if this tool is appropriate for the user request. You may choose to:
+1. Keep using this tool (do not regenerate code, but ensure it's listed in required_dynamic_tools if it was saved).
+2. Generate a new, different tool if you think this one is not suitable.
+3. Decide no tool is needed.
+Proceed with generating the JSON response as usual.
+--------------------------------------------------------------------------------
+"""
+
+
     # Populate the template with dynamic values
-    prompt = prompt_template.format(
-        user_request=user_request,
+    # The base_prompt_template should contain placeholders for {user_request}, {predefined_tool_descriptions}, etc.
+    # And now we add the refinement_instructions at an appropriate place (e.g., before the JSON output instructions).
+    # For this to work best, 'generate_agent_details_prompt' should probably have a placeholder like {refinement_section}
+    # If not, we can append. For now, let's assume we append it before the part asking for JSON.
+    
+    # A more robust way would be to design the .toml prompt to include an optional refinement section.
+    # For now, we will prepend the refinement instructions to the user request for context.
+    # This is a simplification; ideally, the main prompt template would have a dedicated section for these instructions.
+    
+    contextual_user_request = user_request
+    if refinement_instructions:
+        contextual_user_request = f"{refinement_instructions}\n\nOriginal User Request: {user_request}"
+
+
+    prompt = base_prompt_template.format(
+        user_request=contextual_user_request, # Pass the possibly augmented user request
         predefined_tool_descriptions=predefined_tool_descriptions,
         dynamic_tool_listing=dynamic_tool_listing,
         api_key_listing_for_prompt=api_key_listing_for_prompt
+        # If your .toml prompt has a {refinement_section} placeholder, you'd add:
+        # refinement_section=refinement_instructions
     )
 
     try:
@@ -401,16 +479,19 @@ def generate_text_with_gemini(prompt_text: str):
         return f"Error generating text: {e}"
 
 # --- Core Agent Logic for Web/External Calls ---
+MAX_REFINEMENT_ITERATIONS = 3 # Configurable: Max times to refine and re-evaluate
+MAX_TOOL_GENERATION_RETRIES = 3 # Renamed your MAX_RETRIES for clarity
+
 def handle_web_request(user_query: str) -> Generator[str, None, None]:
     """
     Handles a single user request, performing all necessary steps.
-    Includes retry logic for tool generation/testing and refactoring.
+    Includes an outer loop for iterative refinement of generated tools based on evaluation,
+    and an inner loop for retrying tool generation/testing.
     This function is a GENERATOR. It yields log strings prefixed with "log: "
     and finally yields the agent reply string prefixed with "reply: ".
     """
-    MAX_RETRIES = 5 # Define max retries for critical steps
-    print(f"\n--- Handling Web Request (Generator): '{user_query}' ---") # Server console log
     yield f"log: Processing request: '{user_query}'..."
+    original_user_request = user_query # Keep the original request
 
     # === Refresh API Keys and Configure Gemini for this request ===
     yield "log: Refreshing API keys and configuring Gemini..."
@@ -424,220 +505,323 @@ def handle_web_request(user_query: str) -> Generator[str, None, None]:
     else:
         yield "log: WARNING: GOOGLE_API_KEY not found. Gemini calls may fail."
 
-    # --- Retry Loop for Tool Generation & Testing ---
-    generation_details = None
-    generated_tool_code_str = None # Initialize here
-    tool_code_is_valid = False # Assume invalid until tested successfully
-    exec_globals = {} # Define scope for exec outside loop if needed later for adding tools
-    newly_added_tool_names = [] # Track names of successfully tested NEW tools
+    current_tool_code_str = None # Holds the code of the tool being refined/evaluated
+    feedback_history = []
+    agent_response_text = "No response generated yet." # Default if all iterations fail early
+    tools_confirmed_for_last_successful_worker = []
 
-    for attempt in range(1, MAX_RETRIES + 1):
-        yield f"log: Attempt {attempt}/{MAX_RETRIES} to generate/validate tool..."
-        # --- Attempt to generate agent details ---
-        current_generation_details = generate_agent_details(user_query, available_tools, dynamic_tool_registry, current_api_key_details)
 
-        if not current_generation_details:
-            yield f"log: Generation failed on attempt {attempt}. Retrying..."
+    for refinement_iteration in range(1, MAX_REFINEMENT_ITERATIONS + 1):
+        yield f"log: --- Refinement Iteration {refinement_iteration}/{MAX_REFINEMENT_ITERATIONS} ---"
+
+        # 1. TOOL GENERATION / REFINEMENT STAGE
+        generation_details_this_iteration = None
+        generated_tool_code_for_this_iteration = None
+        tool_code_is_valid_for_this_iteration = False
+        exec_globals_for_this_iteration = {} # Scope for exec for this iteration's new tool
+        newly_added_tool_names_this_iteration = [] # Names of tools from this iteration's generation
+
+        # Prepare arguments for generate_agent_details (or its refined version)
+        # Note: generate_agent_details will need to be modified to accept and use
+        # previous_tool_code_to_refine and feedback_for_refinement.
+        tool_generation_args = {
+            "user_request": original_user_request,
+            "predefined_tools_dict": available_tools,
+            "dynamic_tools_registry": dynamic_tool_registry,
+            "api_key_details": current_api_key_details,
+            "previous_tool_code_to_refine": current_tool_code_str, # Pass current tool for refinement
+            "feedback_for_refinement": feedback_history[-1] if feedback_history else None
+        }
+
+        for attempt in range(1, MAX_TOOL_GENERATION_RETRIES + 1):
+            yield f"log: [Refinement Iteration {refinement_iteration}] Tool generation/validation attempt {attempt}/{MAX_TOOL_GENERATION_RETRIES}..."
+            
+            # CALLING generate_agent_details (needs modification to use new args)
+            current_generation_details_dict = generate_agent_details(**tool_generation_args)
+
+            if not current_generation_details_dict:
+                yield f"log: [Refinement Iteration {refinement_iteration}] Tool generation failed (generate_agent_details returned None) on attempt {attempt}."
+                if attempt < MAX_TOOL_GENERATION_RETRIES:
+                    yield f"log: Retrying tool generation..."
             time.sleep(1)
             continue
+                else: # All retries for tool generation failed
+                    yield f"log: [Refinement Iteration {refinement_iteration}] All {MAX_TOOL_GENERATION_RETRIES} attempts to generate tool details failed."
+                    # This is a critical failure for this refinement iteration if a tool was expected.
+                    # We might decide to break the refinement loop or try to proceed without a tool.
+                    # For now, we'll mark tool code as invalid and let the outer logic handle it.
+                    tool_code_is_valid_for_this_iteration = False 
+                    break # Break from tool generation retries
 
-        # Generation succeeded for this attempt, store details
-        generation_details = current_generation_details # Store the latest successful generation
-        generated_prompt = generation_details['generated_prompt']
-        required_predefined_tools = generation_details['required_predefined_tools']
-        required_dynamic_tools = generation_details['required_dynamic_tools']
-        current_generated_code_str = generation_details['generated_tool_code']
-        current_required_new_names = generation_details['required_new_tool_names']
-        dummy_args = generation_details.get("example_dummy_arguments")
+            generation_details_this_iteration = current_generation_details_dict
+            system_prompt_for_worker = generation_details_this_iteration['generated_prompt']
+            required_predefined_tools = generation_details_this_iteration['required_predefined_tools']
+            required_dynamic_tools_from_registry = generation_details_this_iteration['required_dynamic_tools']
+            potential_new_tool_code = generation_details_this_iteration['generated_tool_code']
+            required_new_tool_names_from_gen = generation_details_this_iteration['required_new_tool_names']
+            dummy_args_for_test = generation_details_this_iteration.get("example_dummy_arguments")
 
-        yield "log: Agent details generated successfully this attempt."
-        if current_required_new_names: yield f"log: New tools specified: {current_required_new_names}"
+            yield f"log: [Refinement Iteration {refinement_iteration}] Agent details generated attempt {attempt}."
+            if required_new_tool_names_from_gen:
+                yield f"log: Potential new tools: {required_new_tool_names_from_gen}"
 
-        # If no new code generated this attempt, validation is trivial
-        if not current_generated_code_str:
-            yield "log: No new tool code generated. Validation successful."
-            generated_tool_code_str = None # Ensure this is None if no code
-            required_new_tool_names = []
-            tool_code_is_valid = True
-            break # Exit retry loop
+            if not potential_new_tool_code: # No new tool code was suggested by generate_agent_details
+                yield f"log: [Refinement Iteration {refinement_iteration}] No new tool code provided by generator. Validation of 'no new code' is successful."
+                generated_tool_code_for_this_iteration = None
+                newly_added_tool_names_this_iteration = []
+                tool_code_is_valid_for_this_iteration = True # Valid in the sense that no new code was expected/generated
+                break # Exit tool generation/validation retry loop
 
-        # --- Attempt to execute and test the generated code ---
-        yield f"log: Testing generated code (Attempt {attempt})..."
-        print("\n" + "="*30 + f" EXECUTING/TESTING DYNAMIC CODE (Attempt {attempt}) " + "="*30)
-        is_current_code_valid = False
-        current_exec_globals = {**globals()}
+            # --- Test the generated code if new code was provided ---
+            yield f"log: [Refinement Iteration {refinement_iteration}] Testing generated code (Attempt {attempt})..."
+            print(f"\\n{'='*30} EXECUTING/TESTING DYNAMIC CODE (Ref.Iter {refinement_iteration}, Attempt {attempt}) {'='*30}")
+            
+            current_code_actually_valid = False # Flag for this specific code validation block
+            current_exec_globals = {**globals()} # Fresh globals for each exec attempt
         if 'requests' not in current_exec_globals:
-            try:
-                import requests
-                current_exec_globals['requests'] = requests
-            except ImportError:
-                pass
-        if 'json' not in current_exec_globals:
-            try:
-                import json
-                current_exec_globals['json'] = json
-            except ImportError:
-                pass
+                try: import requests; current_exec_globals['requests'] = requests
+                except ImportError: pass
+            if 'json' not in current_exec_globals: # json is json_module in outer scope
+                try: import json as json_std; current_exec_globals['json'] = json_std
+                except ImportError: pass
 
-        try:
-            exec(current_generated_code_str, current_exec_globals)
-            yield f"log: Dynamic code execution successful (Attempt {attempt})."
 
-            if current_required_new_names:
-                primary_new_tool_name = current_required_new_names[0]
+            try:
+                exec(potential_new_tool_code, current_exec_globals)
+                yield f"log: [Refinement Iteration {refinement_iteration}] Dynamic code execution syntax OK (Attempt {attempt})."
+
+                if required_new_tool_names_from_gen:
+                    primary_new_tool_name = required_new_tool_names_from_gen[0]
                 if primary_new_tool_name in current_exec_globals and callable(current_exec_globals[primary_new_tool_name]):
                     new_func_obj = current_exec_globals[primary_new_tool_name]
-                    yield f"log: Testing primary tool: {primary_new_tool_name}..."
+                        yield f"log: [Refinement Iteration {refinement_iteration}] Testing primary tool: {primary_new_tool_name}..."
 
-                    if isinstance(dummy_args, dict):
+                        if isinstance(dummy_args_for_test, dict):
+                            # Temporarily patch os.environ for testing if keys are needed by tool
+                            # Ensure this doesn't leak or permanently alter os.environ outside tests
                         with patch.dict(os.environ, {'TEST_API_KEY_GENERIC': 'dummy_test_value', 'OPEN_WEATHER_API_KEY': 'dummy_owm_key', 'SERPER_API_KEY': 'dummy_serper_key'}, clear=False):
                             try:
-                                print(f"Testing {primary_new_tool_name} with dummy args: {dummy_args}")
-                                test_result = new_func_obj(**dummy_args)
+                                    print(f"Testing {primary_new_tool_name} with dummy args: {dummy_args_for_test}")
+                                    test_result = new_func_obj(**dummy_args_for_test)
                                 print(f"Test successful for {primary_new_tool_name}. Result: {test_result}")
-                                yield f"log: Test successful for {primary_new_tool_name}."
-                                is_current_code_valid = True # Test passed!
+                                    yield f"log: [Refinement Iteration {refinement_iteration}] Test successful for {primary_new_tool_name}."
+                                    current_code_actually_valid = True
                             except Exception as test_e:
                                 print(f"Test failed for {primary_new_tool_name}: {test_e}")
                                 print(traceback.format_exc())
-                                yield f"log: Test failed for {primary_new_tool_name}: {test_e}"
-                                is_current_code_valid = False
+                                    yield f"log: [Refinement Iteration {refinement_iteration}] Test FAILED for {primary_new_tool_name}: {test_e}"
+                                    current_code_actually_valid = False
+                        else: # No dummy args, or not a dict
+                            if required_new_tool_names_from_gen: # Only warn if a tool was expected
+                                print(f"Warning: No suitable dummy args for {primary_new_tool_name}. Cannot perform functional test.")
+                                yield f"log: [Refinement Iteration {refinement_iteration}] Warning: No dummy args for {primary_new_tool_name}. Functional test skipped."
+                            current_code_actually_valid = True # Syntax was OK, but treat as valid if no test possible / no tool expected
                     else:
-                        print(f"Warning: No dummy args for {primary_new_tool_name}. Skipping test.")
-                        yield f"log: Warning: No dummy args for {primary_new_tool_name}. Test skipped."
-                        is_current_code_valid = False # Consider test failed if skipped
-                else:
-                    print(f"Error: Primary function '{primary_new_tool_name}' not found/callable.")
-                    yield f"log: Error: Primary function '{primary_new_tool_name}' not found/callable."
-                    is_current_code_valid = False
-            else: # Code generated but no names specified
-                print("Warning: Code generated, but no tool names specified. Discarding code.")
-                yield "log: Warning: Code generated, but no new tool names. Treating as valid (no tool added)."
-                is_current_code_valid = True # Allow proceeding without adding tool
+                        print(f"Error: Primary function '{primary_new_tool_name}' not found or not callable after exec.")
+                        yield f"log: [Refinement Iteration {refinement_iteration}] Error: Primary function '{primary_new_tool_name}' not found/callable."
+                        current_code_actually_valid = False
+                else: # Code generated but no tool names specified by generator. This is unusual.
+                    print("Warning: Code generated, but no tool names specified by generator. Cannot test or use.")
+                    yield f"log: [Refinement Iteration {refinement_iteration}] Warning: Code generated, but no new tool names. Discarding code."
+                    current_code_actually_valid = False # Or True if we want to allow proceeding without a new tool
 
         except Exception as e_exec:
-            print(f"CRITICAL ERROR EXECUTING CODE (Attempt {attempt}): {e_exec}")
+                print(f"CRITICAL ERROR EXECUTING CODE (Ref.Iter {refinement_iteration}, Attempt {attempt}): {e_exec}")
             print(traceback.format_exc())
-            yield f"log: Error executing dynamic code: {e_exec}"
-            is_current_code_valid = False
+                yield f"log: [Refinement Iteration {refinement_iteration}] Error executing dynamic code: {e_exec}"
+                current_code_actually_valid = False
+            
+            print(f"{'='*80}\\n")
 
-        print("" + "="*80 + "\n")
+            if current_code_actually_valid:
+                yield f"log: [Refinement Iteration {refinement_iteration}] Tool code validated successfully on attempt {attempt}."
+                tool_code_is_valid_for_this_iteration = True
+                generated_tool_code_for_this_iteration = potential_new_tool_code
+                newly_added_tool_names_this_iteration = required_new_tool_names_from_gen
+                exec_globals_for_this_iteration = current_exec_globals # Save the globals where the valid code ran
+                break # Exit tool generation/validation retry loop
+            else: # Validation failed this attempt
+                yield f"log: [Refinement Iteration {refinement_iteration}] Tool code validation failed on attempt {attempt}."
+                if attempt < MAX_TOOL_GENERATION_RETRIES:
+                    yield f"log: Retrying tool generation/validation..."
+                    time.sleep(1) # Wait before retrying
+                # else: implicitly, loop will end, and tool_code_is_valid_for_this_iteration will be false
+        # --- End of Tool Generation/Validation Retry Loop ---
 
-        # If validation passed this attempt, store results and break loop
-        if is_current_code_valid:
-            yield f"log: Tool generation/validation successful on attempt {attempt}."
-            tool_code_is_valid = True
-            generated_tool_code_str = current_generated_code_str # Store the valid code
-            required_new_tool_names = current_required_new_names # Store the corresponding names
-            exec_globals = current_exec_globals # Store the globals where valid code was exec'd
-            newly_added_tool_names = current_required_new_names # Track names for saving
-            break # Exit the generation/testing retry loop
-        else:
-            yield f"log: Validation failed on attempt {attempt}. Retrying if possible..."
-            time.sleep(1)
-
-    # --- End of Retry Loop for Generation & Testing ---
-
-    # Check if generation ultimately failed after all retries
-    if not tool_code_is_valid:
-        error_message = f"Failed to generate and validate tool after {MAX_RETRIES} attempts for: '{user_query}'"
-        print(error_message)
+        if not tool_code_is_valid_for_this_iteration and required_new_tool_names_from_gen: # If new tool code was expected but all attempts to validate it failed.
+            error_message = f"Failed to generate and validate a NEW tool after {MAX_TOOL_GENERATION_RETRIES} attempts in refinement iteration {refinement_iteration}."
         yield f"log: Error: {error_message}"
-        yield f"reply: {error_message}"
+            feedback_history.append(f"Tool generation/validation failed: {error_message}. Last attempted code (if any): {potential_new_tool_code}")
+            current_tool_code_str = None # Reset current_tool_code_str as the last attempt was bad
+            if refinement_iteration == MAX_REFINEMENT_ITERATIONS:
+                yield f"reply: {error_message} Cannot provide a solution."
         return
+            continue # To the next refinement iteration, hoping for better luck or different strategy
 
-    # --- Proceed with validated/existing tools ---
-    yield f"log: Using generated prompt: '{generated_prompt[:100]}...'"
-    if required_predefined_tools: yield f"log: Adding predefined tools: {required_predefined_tools}"
-    if required_dynamic_tools: yield f"log: Adding existing dynamic tools: {required_dynamic_tools}"
+        # Update current_tool_code_str with the successfully validated code for this iteration (if any)
+        # This will be used by the evaluator and for the next refinement cycle.
+        if tool_code_is_valid_for_this_iteration and generated_tool_code_for_this_iteration:
+            current_tool_code_str = generated_tool_code_for_this_iteration
+        # If no new code was generated (e.g. tool_code_is_valid_for_this_iteration is True but generated_tool_code_for_this_iteration is None)
+        # then current_tool_code_str retains its value from the previous iteration (or None if first iteration).
 
-    all_tool_functions_for_worker = []
-    tools_confirmed_for_worker = [] # New list to track tools passed to worker
+        # Add successfully validated NEW tools to the dynamic_tool_registry and save them
+        if tool_code_is_valid_for_this_iteration and generated_tool_code_for_this_iteration and newly_added_tool_names_this_iteration:
+            yield f"log: [Refinement Iteration {refinement_iteration}] Adding validated new tool(s) to registry: {newly_added_tool_names_this_iteration}"
+            successfully_added_to_registry_this_iter = []
+            for tool_name in newly_added_tool_names_this_iteration:
+                if tool_name in exec_globals_for_this_iteration and callable(exec_globals_for_this_iteration[tool_name]):
+                    tool_func = exec_globals_for_this_iteration[tool_name]
+                    dynamic_tool_registry[tool_name] = tool_func # Update live registry
+                    successfully_added_to_registry_this_iter.append(tool_name)
+                else:
+                    yield f"log: [Refinement Iteration {refinement_iteration}] Error: Validated function '{tool_name}' missing from exec_globals. Cannot add to registry."
+            
+            if successfully_added_to_registry_this_iter: # Only save if tools were actually added
+                yield f"log: [Refinement Iteration {refinement_iteration}] Saving new tool(s) to persistent registry: {successfully_added_to_registry_this_iter}"
+                # Assuming save_dynamic_tool takes list of names and the single code block for them
+                tool_manager.save_dynamic_tool(successfully_added_to_registry_this_iter, generated_tool_code_for_this_iteration)
+                
+                # Optional: Attempt to refactor tool registry (your existing logic)
+                if random.random() <= 0.3: # 30% chance
+                    yield f"log: [Refinement Iteration {refinement_iteration}] Attempting tool registry refactoring..."
+                    try:
+                        refactor_logs = tool_manager.refactor_tool_registry()
+                        yield f"log: [Refinement Iteration {refinement_iteration}] Tool registry refactoring successful."
+                        if isinstance(refactor_logs, list):
+                            for r_log in refactor_logs: yield f"log: [Refactor] {r_log}"
+                        elif isinstance(refactor_logs, str): yield f"log: [Refactor] {refactor_logs}"
+                    except Exception as ref_e:
+                        yield f"log: [Refinement Iteration {refinement_iteration}] Tool registry refactoring failed: {ref_e}"
+        elif not newly_added_tool_names_this_iteration:
+             yield f"log: [Refinement Iteration {refinement_iteration}] No new tools were generated in this iteration to add/save."
 
-    # Add required PREDEFINED tools
+
+        # 2. AGENT EXECUTION STAGE
+        yield f"log: [Refinement Iteration {refinement_iteration}] Preparing toolset for worker..."
+        all_tool_functions_for_worker_this_iter = []
+        tools_confirmed_for_worker_this_iter = []
+
+        # Add PREDEFINED tools required by the current agent plan
     for tool_name in required_predefined_tools:
         if tool_name in available_tools:
-            all_tool_functions_for_worker.append(available_tools[tool_name]['function'])
-            tools_confirmed_for_worker.append(tool_name) # Track tool
+                all_tool_functions_for_worker_this_iter.append(available_tools[tool_name]['function'])
+                tools_confirmed_for_worker_this_iter.append(tool_name)
         else:
-            print(f"Warning: Predefined tool '{tool_name}' not found by generator.")
-            yield f"log: Warning: Predefined tool '{tool_name}' not found by generator."
+                yield f"log: [Refinement Iteration {refinement_iteration}] Warning: Predefined tool '{tool_name}' required by plan not found."
     
-    # Add required DYNAMIC tools from registry
-    for tool_name in required_dynamic_tools: # Tools identified by generator as needed from registry
+        # Add existing DYNAMIC tools required by the current agent plan
+        for tool_name in required_dynamic_tools_from_registry:
         if tool_name in dynamic_tool_registry:
-            all_tool_functions_for_worker.append(dynamic_tool_registry[tool_name])
-            tools_confirmed_for_worker.append(tool_name) # Track tool
+                all_tool_functions_for_worker_this_iter.append(dynamic_tool_registry[tool_name])
+                tools_confirmed_for_worker_this_iter.append(tool_name)
         else:
-            print(f"Warning: Required dynamic tool '{tool_name}' not found in registry.")
-            yield f"log: Warning: Required dynamic tool '{tool_name}' not found in registry."
+                yield f"log: [Refinement Iteration {refinement_iteration}] Warning: Required dynamic tool '{tool_name}' from registry not found."
 
-    # Add the successfully validated NEW tools (if any) to the worker list and registry
-    successfully_added_tools = []
-    if tool_code_is_valid and generated_tool_code_str and required_new_tool_names:
-        yield f"log: Adding validated new tool(s) to worker: {required_new_tool_names}"
-        for tool_name in required_new_tool_names:
-            if tool_name in exec_globals and callable(exec_globals[tool_name]):
-                tool_func = exec_globals[tool_name]
-                all_tool_functions_for_worker.append(tool_func)
-                dynamic_tool_registry[tool_name] = tool_func # Update live registry
-                successfully_added_tools.append(tool_name) # Track for saving
-                tools_confirmed_for_worker.append(tool_name) # Track tool
+        # Add the NEWLY validated and registered tools for THIS iteration
+        for tool_name in newly_added_tool_names_this_iteration: # These are names from the successful generation
+            if tool_name in dynamic_tool_registry: # Check if it was successfully added to registry
+                all_tool_functions_for_worker_this_iter.append(dynamic_tool_registry[tool_name])
+                tools_confirmed_for_worker_this_iter.append(tool_name)
             else:
-                print(f"Error: Validated tool function '{tool_name}' missing from exec_globals.")
-                yield f"log: Error: Could not find validated function '{tool_name}' to add."
-
-    # --- Save the newly generated tool to persistent storage (using manager) ---
-    if successfully_added_tools and generated_tool_code_str:
-        yield f"log: Saving new tool(s) to persistent registry: {', '.join(successfully_added_tools)}"
-        tool_manager.save_dynamic_tool(successfully_added_tools, generated_tool_code_str)
-
-        # --- Only attempt to refactor the tool registry with a 30% chance ---
-        should_attempt_refactor = random.random() <= 0.3  # 30% chance to attempt refactoring
+                 yield f"log: [Refinement Iteration {refinement_iteration}] Warning: Newly generated tool '{tool_name}' not found in dynamic registry for worker."
         
-        if should_attempt_refactor:
-            yield f"log: Randomly decided to attempt tool refactoring (30% chance)..."
-            refactor_success = False
-            for ref_attempt in range(1, MAX_RETRIES + 1):
-                yield f"log: Attempt {ref_attempt}/{MAX_RETRIES} to refactor tool registry..."
-                try:
-                    refactor_result = tool_manager.refactor_tool_registry()
-                    refactor_success = True # Assume success if no exception
-                    yield f"log: Refactoring attempt {ref_attempt} successful."
-                    # Log details from refactor result if any
-                    if isinstance(refactor_result, list):
-                        for ref_log in refactor_result: yield f"log: [Refactor] {ref_log}"
-                    elif isinstance(refactor_result, str): yield f"log: [Refactor] {refactor_result}"
-                    break # Exit refactor retry loop on success
-                except Exception as ref_e:
-                    yield f"log: Refactoring attempt {ref_attempt} failed: {ref_e}"
-                    if ref_attempt < MAX_RETRIES:
-                        yield f"log: Retrying refactoring..."
-                        time.sleep(1)
-                    else:
-                        yield f"log: Refactoring failed after {MAX_RETRIES} attempts."
-                        print(f"ERROR: Refactoring failed after {MAX_RETRIES} attempts.")
-        else:
-            yield f"log: Skipping tool refactoring (70% chance to skip)."
+        yield f"log: [Refinement Iteration {refinement_iteration}] Tools for worker: {tools_confirmed_for_worker_this_iter}"
+        yield f"log: [Refinement Iteration {refinement_iteration}] Executing request with Gemini worker using system prompt: '{system_prompt_for_worker[:100]}...'"
+        
+        agent_response_text = execute_request_with_worker( # This is your existing function
+            user_request=original_user_request,
+            system_prompt=system_prompt_for_worker,
+            tool_functions=all_tool_functions_for_worker_this_iter
+        )
+        tools_confirmed_for_last_successful_worker = list(set(tools_confirmed_for_worker_this_iter)) # Update for this run
 
-    # 2. Execute with Worker
-    yield "log: Executing request with Gemini worker and available tools..."
-    final_response = execute_request_with_worker(
-        user_request=user_query, # Use the original user_query
-        system_prompt=generated_prompt,
-        tool_functions=all_tool_functions_for_worker
-    )
-    print("\n--- Final Response (from handle_web_request) --- ")
-    print(final_response)
-    print(f"Current Dynamic Registry (after web request): {list(dynamic_tool_registry.keys())}")
-    yield "log: Request processing complete."
+        yield f"log: [Refinement Iteration {refinement_iteration}] Worker response: '{agent_response_text[:200]}...'"
 
-    # Yield summary of tools actually used by the worker
-    if tools_confirmed_for_worker:
-        unique_tools_used = sorted(list(set(tools_confirmed_for_worker)))
-        yield f"log: tools_used_summary: {json_module.dumps(unique_tools_used)}"
+        # 3. RESPONSE EVALUATION STAGE
+        yield f"log: [Refinement Iteration {refinement_iteration}] Gemini evaluating the agent's response and tool performance..."
+        
+        eval_tool_name_display = (newly_added_tool_names_this_iteration[0] 
+                                  if newly_added_tool_names_this_iteration else 
+                                  (required_dynamic_tools_from_registry[0] if required_dynamic_tools_from_registry else "N/A"))
+        
+        evaluation_prompt = f"""
+Original user request: {original_user_request}
+Tool focused on in this iteration (if applicable): {eval_tool_name_display}
+Tool code (if new/refined in this iteration):\n```python\n{current_tool_code_str if current_tool_code_str and newly_added_tool_names_this_iteration else 'N/A (Used existing or no specific tool code generated this round)'}\n```
+Agent's response to user: {agent_response_text}
+Tools available to agent during execution: {tools_confirmed_for_last_successful_worker}
 
-    yield f"reply: {final_response}"
+Considering the original user request, please evaluate:
+1. Is the agent's response sufficient and accurate to fully address the user's request?
+2. If a dynamic tool was generated/refined or a specific existing one was targeted, did it perform correctly and as intended to help answer the request?
+3. If the response is NOT sufficient OR the tool is flawed/ineffective:
+   - Provide specific, actionable feedback for improving the Python tool's code (if a tool was involved).
+   - If no tool was generated but one is needed, suggest what kind of tool should be created.
+   - If a tool was used but it's the wrong approach, suggest a different tool or how to fix the current one.
+
+Respond ONLY in JSON format with the following keys:
+- "is_sufficient": boolean (true if the response fully satisfies the user request, false otherwise)
+- "reasoning": string (your detailed explanation for why the response is sufficient or not)
+- "feedback_for_tool_improvement": string (specific feedback to improve/change the Python tool code for the next iteration, or what tool to create if none was made. Null if no tool improvement is needed or possible.)
+"""
+        yield f"log: [Refinement Iteration {refinement_iteration}] Sending evaluation prompt to Gemini..."
+        raw_evaluation_output = generate_text_with_gemini(evaluation_prompt) # Your existing function
+        yield f"log: [Refinement Iteration {refinement_iteration}] Raw evaluation from Gemini: {raw_evaluation_output}"
+
+        try:
+            # Attempt to remove markdown ```json ... ``` if present
+            cleaned_eval_output = raw_evaluation_output.strip()
+            if cleaned_eval_output.startswith("```json"):
+                cleaned_eval_output = cleaned_eval_output[7:]
+            if cleaned_eval_output.endswith("```"):
+                cleaned_eval_output = cleaned_eval_output[:-3]
+            
+            evaluation_result = json_module.loads(cleaned_eval_output.strip())
+            is_sufficient = evaluation_result.get("is_sufficient", False)
+            reasoning = evaluation_result.get("reasoning", "No reasoning provided by evaluator.")
+            feedback_for_improvement = evaluation_result.get("feedback_for_tool_improvement")
+        except Exception as e:
+            yield f"log: [Refinement Iteration {refinement_iteration}] Error parsing evaluation JSON: {e}. Raw: '{raw_evaluation_output}'. Assuming response is not sufficient."
+            is_sufficient = False
+            reasoning = f"Evaluation parsing error: {e}. The evaluator's response was not valid JSON."
+            feedback_for_improvement = "The evaluator's response was not valid JSON. Please attempt to regenerate/refine the tool or rephrase the request, focusing on clear instructions for the tool's behavior."
+
+        yield f"log: [Refinement Iteration {refinement_iteration}] Evaluation: Sufficient - {is_sufficient}. Reasoning: {reasoning}"
+
+        if is_sufficient:
+            yield f"log: Response deemed sufficient in iteration {refinement_iteration}."
+            if tools_confirmed_for_last_successful_worker:
+                 yield f"log: tools_used_summary: {json_module.dumps(tools_confirmed_for_last_successful_worker)}"
+            yield f"reply: {agent_response_text}"
+            return
+
+        # 4. PREPARE FOR NEXT ITERATION (if response was not sufficient)
+        current_feedback = feedback_for_improvement
+        if not current_feedback: # If Gemini didn't provide specific tool feedback, use the reasoning.
+            current_feedback = f"Response was insufficient. Evaluator reasoning: {reasoning}. No specific tool improvement suggestion was provided."
+        
+        feedback_history.append(current_feedback)
+        yield f"log: [Refinement Iteration {refinement_iteration}] Feedback for next iteration: {current_feedback}"
+
+        if not current_tool_code_str and not feedback_for_improvement: 
+            # This means no tool was generated/used, and the evaluator didn't suggest creating one.
+            yield f"log: [Refinement Iteration {refinement_iteration}] Evaluator did not provide feedback for tool creation, and no tool currently exists. Cannot effectively refine."
+            if tools_confirmed_for_last_successful_worker:
+                yield f"log: tools_used_summary: {json_module.dumps(tools_confirmed_for_last_successful_worker)}"
+            yield f"reply: {agent_response_text} (Note: Unable to achieve a sufficient result after {refinement_iteration} attempts. Last reasoning: {reasoning})"
+            return
+        
+        # If there was tool code, but no specific feedback for improvement, the existing code will be tried again
+        # with the hope that the general feedback (now in feedback_history) helps generate_agent_details make better plan.
+
+    # MAX_REFINEMENT_ITERATIONS Reached
+    yield f"log: Maximum refinement iterations ({MAX_REFINEMENT_ITERATIONS}) reached."
+    final_reasoning_or_feedback = feedback_history[-1] if feedback_history else "Max iterations reached without achieving a sufficient response."
+    if tools_confirmed_for_last_successful_worker:
+        yield f"log: tools_used_summary: {json_module.dumps(tools_confirmed_for_last_successful_worker)}"
+    yield f"reply: {agent_response_text} (Note: Response after {MAX_REFINEMENT_ITERATIONS} refinement attempts. Last feedback/reasoning: {final_reasoning_or_feedback})"
+
 
 # --- Main Execution (Updated for API Key File and passing key names) ---
 if __name__ == "__main__":
